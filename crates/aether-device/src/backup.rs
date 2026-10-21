@@ -129,15 +129,36 @@ impl Backup {
 
     /// The newest backup for `board` in [`backups_dir`].
     pub fn latest(board: &str) -> Result<Option<PathBuf>> {
-        let dir = backups_dir()?;
-        let Ok(rd) = std::fs::read_dir(&dir) else { return Ok(None) };
-        let mut files: Vec<PathBuf> = rd
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&format!("{board}-"))))
-            .collect();
-        files.sort();
-        Ok(files.pop())
+        Ok(list_in(&backups_dir()?, board).pop().map(|(_, p)| p))
     }
+
+    /// The oldest backup for `board`: the keyboard as it was before Aether
+    /// first changed anything, since every change backs up first.
+    pub fn oldest(board: &str) -> Result<Option<PathBuf>> {
+        Ok(list_in(&backups_dir()?, board).into_iter().next().map(|(_, p)| p))
+    }
+
+    /// All backups in [`backups_dir`] (any board), oldest first, with their time.
+    pub fn list() -> Result<Vec<(u64, PathBuf)>> {
+        Ok(list_in(&backups_dir()?, ""))
+    }
+}
+
+/// `<board>-<unix>.json` files in `dir` for `board` ("" = any), oldest first.
+/// Sorted by the number, not the name, so the order can't depend on digit count.
+fn list_in(dir: &Path, board: &str) -> Vec<(u64, PathBuf)> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut v: Vec<(u64, PathBuf)> = rd
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter_map(|p| {
+            let stem = p.file_stem()?.to_str()?;
+            let (name, ts) = stem.rsplit_once('-')?;
+            let ok = p.extension()? == "json" && (board.is_empty() || name == board);
+            ok.then(|| ts.parse().ok().map(|t| (t, p.clone())))?
+        })
+        .collect();
+    v.sort();
+    v
 }
 
 #[cfg(test)]
@@ -145,6 +166,20 @@ mod tests {
     use super::*;
     use crate::hfd::tests::{FakeBoard, f75};
     use aether_proto::Actuation;
+
+    #[test]
+    fn listing_orders_by_time_and_filters_board() {
+        let dir = std::env::temp_dir().join(format!("aether-list-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["aula-f75-he-1792590510.json", "aula-f75-he-999999999.json", "aula-f75-he-1792591950.json",
+                     "other-board-5.json", "aula-f75-he-notes.txt", "aula-f75-he-x.json"] {
+            std::fs::write(dir.join(name), "{}").unwrap();
+        }
+        let times: Vec<u64> = list_in(&dir, "aula-f75-he").into_iter().map(|(t, _)| t).collect();
+        assert_eq!(times, [999999999, 1792590510, 1792591950], "numeric, not lexical, order");
+        assert_eq!(list_in(&dir, "").len(), 4);
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     #[test]
     fn backup_restore_round_trip() {

@@ -15,7 +15,7 @@ for arg in "$@"; do
     case "$arg" in
         --debug) profile=debug ;;
         --no-test) run_tests=0 ;;
-        -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
         *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
     esac
 done

@@ -31,7 +31,14 @@ enum Cmd {
         out: Option<PathBuf>,
     },
     /// Restore a backup (default: the newest one for this board).
-    Restore { file: Option<PathBuf> },
+    Restore {
+        file: Option<PathBuf>,
+        /// Restore the oldest backup: the board as it was before Aether first changed it.
+        #[arg(long, conflicts_with = "file")]
+        original: bool,
+    },
+    /// List saved backups, oldest first (unix time, board, file).
+    Backups,
     /// Firmware lighting.
     #[command(subcommand)]
     Light(LightCmd),
@@ -160,14 +167,22 @@ fn run(cli: Cli) -> Result<()> {
             };
             println!("saved {}", path.display());
         }
-        Cmd::Restore { file } => {
+        Cmd::Restore { file, original } => {
             let mut kb = connect()?;
+            let slug = kb.board().slug.clone();
             let path = match file {
                 Some(p) => p,
-                None => Backup::latest(&kb.board().slug)?.ok_or_else(|| anyhow!("no backups yet"))?,
+                None if original => Backup::oldest(&slug)?.ok_or_else(|| anyhow!("no backups yet"))?,
+                None => Backup::latest(&slug)?.ok_or_else(|| anyhow!("no backups yet"))?,
             };
             Backup::load(&path)?.restore(kb.as_mut())?;
             println!("restored {} (actuation verified)", path.display());
+        }
+        Cmd::Backups => {
+            for (t, p) in Backup::list()? {
+                let board = p.file_stem().and_then(|s| s.to_str()).and_then(|s| s.rsplit_once('-')).map_or("?", |(b, _)| b);
+                println!("{t}\t{board}\t{}", p.display());
+            }
         }
         Cmd::Light(c) => light(c)?,
         Cmd::Actuation(c) => actuation(c)?,

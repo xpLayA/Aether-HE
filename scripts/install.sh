@@ -20,7 +20,7 @@ while (($#)); do
         --prefix) prefix="${2:?--prefix needs a directory}"; shift ;;
         --no-udev) udev=0 ;;
         --no-build) build=0 ;;
-        -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
     esac
     shift
