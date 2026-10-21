@@ -276,6 +276,7 @@ fn actuation(c: ActCmd) -> Result<()> {
                     Actuation::RapidTrigger { travel_mm: travel, press_mm, release_mm }
                 }
             };
+            kb.validate_actuation(&indices, setting)?;
             backup_first(kb.as_mut())?;
             kb.set_actuation(&indices, setting)?;
             println!("set {} key(s) and verified by read-back", indices.len());

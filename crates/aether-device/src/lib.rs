@@ -31,6 +31,9 @@ pub trait Keyboard: Send {
     fn actuation_table(&mut self) -> Result<ActTable>;
     /// Write a full table as-is (restore path).
     fn write_actuation_table(&mut self, t: &ActTable) -> Result<()>;
+    /// Check `setting` against this board without touching it, so callers can
+    /// refuse before taking a backup.
+    fn validate_actuation(&self, indices: &[usize], setting: Actuation) -> Result<()>;
     /// Read-modify-write `setting` onto the physical keys in `indices`.
     fn set_actuation(&mut self, indices: &[usize], setting: Actuation) -> Result<()>;
 

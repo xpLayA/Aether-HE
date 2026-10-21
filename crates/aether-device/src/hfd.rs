@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use aether_proto::{
     ACT_TABLE_SIZE, ActTable, Actuation, DeviceInfo, Frame, KEY_SLOTS, LEVEL_MAX, LIGHT_MODE_CUSTOM,
-    Lighting, actuation_reads, assemble, device_info_reads, led_table, light_read, match_reply,
+    Lighting, actuation_reads, assemble, device_info_reads, led_table, light_read, match_reply, mm_to_raw,
     stream_clear, stream_frames,
 };
 
@@ -78,11 +78,13 @@ impl<T: Transport> Hfd<T> {
             return Err(Error::Invalid(format!("index {i} is not a key on {}", self.board.name)));
         }
         let lim = &self.board.actuation;
+        // Compare in the 0.01 mm units the board stores, so float steps like
+        // 0.1 + 330 * 0.01 = 3.4000000000000004 count as the 3.40 mm they are.
         let in_range = |v: f64, [lo, hi]: [f64; 2], what: &str| {
-            if (lo..=hi).contains(&v) {
+            if (mm_to_raw(lo)..=mm_to_raw(hi)).contains(&mm_to_raw(v)) {
                 Ok(())
             } else {
-                Err(Error::Invalid(format!("{what} {v} mm is outside {lo}..{hi} mm")))
+                Err(Error::Invalid(format!("{what} {v:.2} mm is outside {lo:.2}..{hi:.2} mm")))
             }
         };
         match setting {
@@ -159,9 +161,13 @@ impl<T: Transport> Keyboard for Hfd<T> {
         Ok(())
     }
 
-    fn set_actuation(&mut self, indices: &[usize], setting: Actuation) -> Result<()> {
+    fn validate_actuation(&self, indices: &[usize], setting: Actuation) -> Result<()> {
         self.require(self.board.capabilities.actuation, "actuation")?;
-        self.check_actuation(indices, setting)?;
+        self.check_actuation(indices, setting)
+    }
+
+    fn set_actuation(&mut self, indices: &[usize], setting: Actuation) -> Result<()> {
+        self.validate_actuation(indices, setting)?;
         let mut table = self.actuation_table()?;
         table.apply(indices, setting);
         self.write_actuation_table(&table)?;
@@ -302,12 +308,28 @@ pub(crate) mod tests {
             (vec![], Actuation::Fixed { travel_mm: 1.0 }),
             (vec![13], Actuation::Fixed { travel_mm: 1.0 }), // slot exists, key does not
             (vec![34], Actuation::Fixed { travel_mm: 0.0 }),
+            (vec![34], Actuation::Fixed { travel_mm: 0.09 }),
+            (vec![34], Actuation::Fixed { travel_mm: 3.41 }),
             (vec![34], Actuation::Fixed { travel_mm: 4.0 }),
             (vec![34], Actuation::RapidTrigger { travel_mm: 1.0, press_mm: 0.0, release_mm: 0.1 }),
         ] {
             assert!(kb.set_actuation(&keys, s).is_err(), "{keys:?} {s:?}");
         }
         assert!(kb.t.sent.is_empty());
+    }
+
+    #[test]
+    fn range_ends_are_accepted_despite_float_steps() {
+        let mut kb = f75(FakeBoard::new());
+        let top = 0.1 + 330.0 * 0.01; // what a 0.01-step slider produces at 3.40
+        assert!(top > 3.4);
+        kb.set_actuation(&[34], Actuation::Fixed { travel_mm: top }).unwrap();
+        assert_eq!(kb.actuation_table().unwrap().record(34).trip, 340);
+        kb.set_actuation(&[34], Actuation::Fixed { travel_mm: 0.1 }).unwrap();
+        let rt_top = 0.01 + 339.0 * 0.01;
+        kb.set_actuation(&[34], Actuation::RapidTrigger { travel_mm: top, press_mm: rt_top, release_mm: 0.01 }).unwrap();
+        let r = kb.actuation_table().unwrap().record(34);
+        assert_eq!((r.trip, r.press, r.release), (340, 340, 1));
     }
 
     #[test]

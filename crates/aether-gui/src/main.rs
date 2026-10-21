@@ -458,6 +458,11 @@ impl App {
                 ui.add(egui::Slider::new(&mut self.release, lim.rt_mm[0]..=lim.rt_mm[1]).step_by(0.01).text("Release (mm)"));
             });
         }
+        // Slider steps accumulate float error (0.1 + 330 * 0.01 = 3.4000000000000004);
+        // keep exactly the 0.01 mm values the board stores.
+        for v in [&mut self.travel, &mut self.press, &mut self.release] {
+            *v = (*v * 100.0).round() / 100.0;
+        }
         ui.add_space(8.0);
         let n = self.selected.len();
         ui.horizontal(|ui| {
@@ -469,7 +474,8 @@ impl App {
                 } else {
                     Actuation::Fixed { travel_mm: self.travel }
                 };
-                if self.write(&format!("Actuation set on {n} key(s), verified"), |kb| kb.set_actuation(&keys, setting)).is_some() {
+                let valid = self.with_kb(|kb| kb.validate_actuation(&keys, setting)).is_some();
+                if valid && self.write(&format!("Actuation set on {n} key(s), verified"), |kb| kb.set_actuation(&keys, setting)).is_some() {
                     self.read_actuation();
                 }
             }
