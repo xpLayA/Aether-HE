@@ -154,6 +154,8 @@ export global UiState {
     in property <[InfoRow]> device-info;
     in property <string> profiles-dir;
     in property <string> backups-dir;
+    in-out property <bool> keep-running: true;
+    in-out property <bool> autostart;
 
     // overlays
     in property <[ToastItem]> toasts;
@@ -223,6 +225,10 @@ export global Actions {
     // Hex helpers (Slint has no hex formatting); parse-hex returns transparent when invalid.
     pure callback to-hex(color) -> string;
     pure callback parse-hex(string) -> color;
+
+    callback quit();
+    callback keep-running-toggled(bool);
+    callback autostart-toggled(bool);
 
     callback confirm-yes();
     callback confirm-no();

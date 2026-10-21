@@ -35,6 +35,11 @@ before first use on a local Linux machine. **Result: no malware, backdoor, or da
 - Access comes from the existing `70-aether.rules` uaccess rule (all hidraw nodes of 38A6:2729). The rule
   grants the seat user the same keystrokes the desktop already receives from that keyboard.
 
+## Single-instance socket (2026-10-22)
+- `aether-gui` listens on `$XDG_RUNTIME_DIR/aether-he.sock` (the runtime dir is 0700, so only this user
+  can connect). The only accepted request is the line `show`, which shows the window; nothing else is
+  parsed or executed. The socket is removed on exit.
+
 ## Residual trust notes
 - Pulling future upstream commits means trusting upstream again. Re-run this audit on large merges.
 - `requirements.txt` uses lower-bound pins (`>=`). Consider a lock file for reproducible installs.

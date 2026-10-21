@@ -661,6 +661,24 @@ export component DevicePage inherits VerticalLayout {
         Text { color: Theme.text; wrap: word-wrap; text: "Check that the keyboard is plugged in with the cable (not the 2.4 GHz dongle), that the Aula web driver isn't open in a browser, and that the udev rule is installed (./scripts/install.sh). Then replug the keyboard and press Reconnect."; }
     }
     Card {
+        title: "Running in the background";
+        subtitle: "Host effects are drawn by Aether, so they need it running.";
+        HorizontalLayout {
+            spacing: 12px;
+            Toggle { y: (parent.height - self.height) / 2; checked <=> UiState.keep-running; toggled(on) => { Actions.keep-running-toggled(on); } }
+            Text { text: "Keep effects running when the window is closed (use Quit in the sidebar to stop)"; color: Theme.text; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Toggle { y: (parent.height - self.height) / 2; checked <=> UiState.autostart; toggled(on) => { Actions.autostart-toggled(on); } }
+            Text { text: "Start at login, hidden, with the active profile's effect"; color: Theme.text; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+        }
+        Text {
+            text: "Hyprland doesn't read autostart files: add  exec-once = aether-gui --background  to hyprland.conf instead.";
+            color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap;
+        }
+    }
+    Card {
         title: "Files";
         for r in [{ k: "Profiles", v: UiState.profiles-dir }, { k: "Backups", v: UiState.backups-dir }]: HorizontalLayout {
             spacing: 16px;

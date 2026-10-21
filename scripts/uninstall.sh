@@ -70,11 +70,15 @@ else
     [[ -f /etc/udev/rules.d/70-aether.rules ]] && rules+=(/etc/udev/rules.d/70-aether.rules)
 fi
 
+# "Start at login" from the GUI's Device page.
+autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/aether-he.desktop"
+[[ -f $autostart ]] && files+=("$autostart")
+
 # Only ever delete Aether's own files: refuse anything outside the expected places.
 for f in "${files[@]}"; do
     case "$f" in
         "$prefix"/bin/aether|"$prefix"/bin/aether-gui|"$share"/*|\
-        "$prefix"/share/applications/aether-he.desktop|"$prefix"/share/icons/hicolor/*/apps/aether-he.png) ;;
+        "$prefix"/share/applications/aether-he.desktop|"$prefix"/share/icons/hicolor/*/apps/aether-he.png|"$autostart") ;;
         *) echo "refusing to remove unexpected manifest entry: $f" >&2; exit 1 ;;
     esac
 done

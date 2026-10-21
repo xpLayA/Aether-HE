@@ -4,6 +4,7 @@
 //! worker thread (`worker.rs`).
 
 mod firmware_sim;
+mod instance;
 mod worker;
 
 use std::cell::RefCell;
@@ -39,8 +40,19 @@ const ADV_TGL: i32 = 3;
 const ADV_RS: i32 = 4;
 const ADV_SOCD: i32 = 5;
 
+/// How often to try again while the keyboard is gone (unplugged, suspend).
+const RECONNECT_EVERY: Duration = Duration::from_secs(5);
+
 fn main() -> Result<(), slint::PlatformError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    // --background: start hidden (login autostart); the active profile's effect still starts.
+    let background = std::env::args().any(|a| a == "--background");
+    let sock = instance::socket_path();
+    if let Some(p) = &sock {
+        if instance::signal_existing(p) {
+            return Ok(()); // already running: it shows its window
+        }
+    }
     let ui = AppWindow::new()?;
     // Matches the .desktop file, so the compositor and menus know the window.
     // Needs the platform (created by AppWindow::new) and must precede show().
@@ -78,7 +90,72 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
-    ui.run()?;
+    if let Some(p) = &sock {
+        let weak = ui.as_weak();
+        let shown = instance::listen(p, move || {
+            let weak = weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = weak.upgrade() {
+                    if let Err(e) = ui.show() {
+                        log::warn!("showing the window: {e}");
+                    }
+                }
+            });
+        });
+        if let Err(e) = shown {
+            log::warn!("single-instance socket {}: {e}", p.display());
+        }
+    }
+    {
+        // Closing the window while a host effect runs keeps it running in the
+        // background (the effect needs this process); otherwise it quits.
+        let (state, weak) = (state.clone(), ui.as_weak());
+        ui.window().on_close_requested(move || {
+            let mut s = state.borrow_mut();
+            if s.running.is_some() && s.background {
+                if let Some(ui) = weak.upgrade() {
+                    s.sync_fx_from_ui(&ui);
+                    s.saved(&ui).store();
+                }
+                if !s.told_background {
+                    s.told_background = true;
+                    let _ = std::process::Command::new("notify-send")
+                        .args(["-a", "Aether", "-i", "aether-he", "Aether keeps your effect running", "Open Aether again to change it, or press Quit to stop."])
+                        .spawn();
+                }
+                slint::CloseRequestResponse::HideWindow
+            } else {
+                let _ = slint::quit_event_loop();
+                slint::CloseRequestResponse::HideWindow
+            }
+        });
+    }
+
+    // Logout or `kill`: quit cleanly so the worker hands the LEDs back to the
+    // firmware instead of leaving the last streamed frame on the keys.
+    if let Err(e) = ctrlc::set_handler(|| {
+        let _ = slint::invoke_from_event_loop(|| {
+            let _ = slint::quit_event_loop();
+        });
+    }) {
+        log::warn!("no signal handler: {e}");
+    }
+    ui.show()?;
+    if background {
+        // Mapped, then hidden: a window that was never mapped can't be shown
+        // later on Wayland (winit), but a hidden one can.
+        let weak = ui.as_weak();
+        slint::Timer::single_shot(Duration::from_millis(500), move || {
+            if let Some(ui) = weak.upgrade() {
+                let _ = ui.hide();
+            }
+        });
+    }
+    slint::run_event_loop_until_quit()?;
+    let _ = ui.hide();
+    if let Some(p) = &sock {
+        let _ = std::fs::remove_file(p);
+    }
     let mut s = state.borrow_mut();
     s.sync_fx_from_ui(&ui);
     s.saved(&ui).store();
@@ -98,6 +175,9 @@ struct Saved {
     live_preview: bool,
     #[serde(default = "yes")]
     simulate: bool,
+    /// Keep a host effect running after the window is closed.
+    #[serde(default = "yes")]
+    background: bool,
 }
 
 fn yes() -> bool {
@@ -113,7 +193,7 @@ impl Saved {
         Saved::path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None, live_preview: true, simulate: true })
+            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None, live_preview: true, simulate: true, background: true })
     }
 
     fn store(&self) {
@@ -176,6 +256,11 @@ struct State {
     /// action * 4 + point: 0 nothing, 1 tap, 2 hold
     dks_cells: [u8; 16],
     pair_swap: bool,
+    background: bool,
+    /// The "still running in the background" notification was shown.
+    told_background: bool,
+    was_visible: bool,
+    last_connect: Instant,
     /// Work out the active profile once the first actuation table arrives.
     resolve_active: bool,
     /// Layout offset so the drawn keyboard starts at (0, 0).
@@ -281,6 +366,10 @@ impl State {
             dks_keys: [0; 4],
             dks_cells: [0; 16],
             pair_swap: false,
+            background: saved.background,
+            told_background: false,
+            was_visible: false,
+            last_connect: Instant::now(),
             origin: (0.0, 0.0),
             live_preview: saved.live_preview,
             previewing: false,
@@ -299,6 +388,7 @@ impl State {
             active_profile: self.active_profile.clone(),
             live_preview: self.live_preview,
             simulate: self.simulate,
+            background: self.background,
         }
     }
 
@@ -442,6 +532,14 @@ impl State {
                 Event::Idle => self.busy = false,
             }
         }
+        // Come back by ourselves after an unplug or a suspend; reconnecting
+        // restarts the active profile's effect (resolve_active).
+        if matches!(self.conn, Conn::Down(_)) && !self.busy && self.last_connect.elapsed() >= RECONNECT_EVERY {
+            self.last_connect = Instant::now();
+            self.conn = Conn::Connecting;
+            self.send(Cmd::Connect);
+            changed = true;
+        }
         // Trailing debounce: the last edit is always shown, at most every PREVIEW_GAP.
         if self.preview_pending && self.preview_sent.elapsed() >= PREVIEW_GAP {
             if let Some(l) = self.light_form.filter(|_| matches!(self.conn, Conn::Up { .. })) {
@@ -464,7 +562,14 @@ impl State {
                 self.sim_frame = Some(sim.render(&l, multicolor));
             }
         }
-        if changed {
+        // Hidden (effect running in the background): only the worker works.
+        let visible = ui.window().is_visible();
+        let shown = visible && !self.was_visible;
+        self.was_visible = visible;
+        if !visible {
+            return;
+        }
+        if changed || shown {
             self.push_all(ui);
         } else {
             if before != self.toasts.len() {
@@ -905,6 +1010,8 @@ impl State {
     fn push_device(&self, ui: &AppWindow) {
         let g = ui.global::<UiState>();
         g.set_profiles_dir(profiles_dir().map(|d| d.display().to_string()).unwrap_or_default().into());
+        g.set_keep_running(self.background);
+        g.set_autostart(autostart_path().is_some_and(|p| p.exists()));
         g.set_backups_dir(backups_dir().map(|d| d.display().to_string()).unwrap_or_default().into());
         let Conn::Up { board, layout, info } = &self.conn else { return };
         let yes = |b: bool| if b { "yes" } else { "no" };
@@ -1095,6 +1202,30 @@ impl State {
             _ => {}
         }
     }
+}
+
+/// `~/.config/autostart/aether-he.desktop`: start hidden at login.
+fn autostart_path() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|d| d.config_dir().join("autostart").join("aether-he.desktop"))
+}
+
+fn set_autostart(on: bool) -> std::io::Result<()> {
+    let path = autostart_path().ok_or_else(|| std::io::Error::other("no home directory"))?;
+    if !on {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    let exe = std::env::current_exe()?;
+    std::fs::create_dir_all(path.parent().unwrap_or(&path))?;
+    std::fs::write(
+        &path,
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Aether HE\nComment=Keyboard effects in the background\nExec=\"{}\" --background\nIcon=aether-he\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+            exe.display()
+        ),
+    )
 }
 
 // ----------------------------------------------------------------- wiring ----
@@ -1465,6 +1596,20 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
                 s.remove_advanced(keys);
             }
             None => {}
+        }
+    });
+    a.on_quit(|| {
+        let _ = slint::quit_event_loop();
+    });
+    on!(on_keep_running_toggled, |s, ui, on: bool| {
+        s.background = on;
+        s.saved(&ui).store();
+    });
+    on!(on_autostart_toggled, |s, ui, on: bool| {
+        match set_autostart(on) {
+            Ok(()) if on => s.toast("Aether starts hidden at login and runs the active profile's effect", false),
+            Ok(()) => s.toast("Aether no longer starts at login", false),
+            Err(e) => s.toast(format!("Couldn't change autostart: {e}"), true),
         }
     });
     on!(on_confirm_no, |s, ui| {

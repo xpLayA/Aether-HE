@@ -35,7 +35,10 @@ with an automatic backup before every change.
   - **Per-key paint:** choose *Custom (per-key)*, select keys, pick a colour and paint. *Apply* stores
     the colours on the keyboard, so they stay without the app.
 - **Host effects:** wave, breathe, aurora, comet, tide, twinkle, rain, striation and static, with your
-  own palette, streamed to every key at ~28 fps while the app is open.
+  own palette, streamed to every key at ~28 fps while Aether runs.
+  - **Background:** closing the window while an effect runs keeps it going (open Aether again to get the
+    window back, **Quit** in the sidebar to stop). *Device → Start at login* runs it hidden from login
+    (Hyprland: add `exec-once = aether-gui --background`). It reconnects by itself after unplug or suspend.
   - **Reactive:** ripple (a ring spreading from the key you press), splash, cross, sparks, afterglow,
     heatmap and lightning. They read key presses from the keyboard itself (read-only, never stored);
     clicking keys on screen triggers them too.
