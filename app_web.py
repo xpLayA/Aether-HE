@@ -1786,6 +1786,10 @@ class Api:
 
     def check_update(self):
         """Ask GitHub for the latest release and whether it's newer than us."""
+        import version
+        if not getattr(version, "UPDATES_ENABLED", True):
+            return {"ok": True, "update": False, "current": version.__version__,
+                    "latest": None, "notes": "", "reason": "updates disabled in this build"}
         return updater.check_for_update()
 
     def get_auto_update(self):
@@ -1813,6 +1817,9 @@ class Api:
 
         asset_size/asset_sha256 come from check_update(); updater re-fetches them
         if omitted, so the download is verified either way."""
+        import version
+        if not getattr(version, "UPDATES_ENABLED", True):
+            return {"ok": False, "error": "updates disabled in this build"}
         res = updater.apply_update(asset_url, asset_name, asset_size, asset_sha256)
         if res.get("ok") and res.get("quit"):
             # Let the bridge return first, then exit so the installer can replace

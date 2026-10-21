@@ -12,3 +12,9 @@ __version__ = "0.5.1"
 
 # owner/repo that releases are published under.
 GITHUB_REPO = "MrWhosNexus/Aether-HE"
+
+# This fork does not pull upstream releases: Api.check_update/apply_update
+# short-circuit while this is False, so the app never contacts GitHub Releases
+# or downloads an installer. Flip only if you publish your own releases (and
+# point GITHUB_REPO at them).
+UPDATES_ENABLED = False
