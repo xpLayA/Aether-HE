@@ -83,6 +83,8 @@ export global UiState {
     in property <bool> light-dirty;
     in-out property <bool> live-preview: true;
     in property <bool> previewing;
+    in-out property <bool> simulate: true;
+    in property <string> keys-badge;
 
     // effects
     in property <[string]> fx-kinds;
@@ -145,6 +147,7 @@ export global Actions {
     callback light-reread();
     callback light-edited();
     callback light-preview-toggled(bool);
+    callback light-sim-toggled(bool);
 
     callback fx-pick(int);
     callback fx-set-color(int, color);

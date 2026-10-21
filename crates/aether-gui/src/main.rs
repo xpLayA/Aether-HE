@@ -3,6 +3,7 @@
 //! state and UI actions into worker commands. All device I/O is on the
 //! worker thread (`worker.rs`).
 
+mod firmware_sim;
 mod worker;
 
 use std::cell::RefCell;
@@ -16,6 +17,7 @@ use aether_effects::Kind;
 use aether_proto::{ActTable, Actuation, DeviceInfo, Lighting, raw_to_mm};
 use serde::{Deserialize, Serialize};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use firmware_sim::Sim;
 use worker::{Cmd, Event, Worker};
 
 slint::include_modules!();
@@ -77,6 +79,8 @@ struct Saved {
     active_profile: Option<String>,
     #[serde(default = "yes")]
     live_preview: bool,
+    #[serde(default = "yes")]
+    simulate: bool,
 }
 
 fn yes() -> bool {
@@ -92,7 +96,7 @@ impl Saved {
         Saved::path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None, live_preview: true })
+            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None, live_preview: true, simulate: true })
     }
 
     fn store(&self) {
@@ -151,6 +155,10 @@ struct State {
     previewing: bool,
     preview_pending: bool,
     preview_sent: Instant,
+    /// On-screen look-alike of the firmware effect (Lighting page).
+    simulate: bool,
+    sim: Option<Sim>,
+    sim_frame: Option<aether_effects::Frame>,
 }
 
 fn rgb(c: [u8; 3]) -> Color {
@@ -222,6 +230,9 @@ impl State {
             previewing: false,
             preview_pending: false,
             preview_sent: Instant::now(),
+            simulate: saved.simulate,
+            sim: None,
+            sim_frame: None,
         }
     }
 
@@ -231,6 +242,7 @@ impl State {
             fx: self.fx.clone(),
             active_profile: self.active_profile.clone(),
             live_preview: self.live_preview,
+            simulate: self.simulate,
         }
     }
 
@@ -273,6 +285,9 @@ impl State {
                     let min_x = layout.keys.iter().map(|k| k.x).fold(f32::MAX, f32::min);
                     let min_y = layout.keys.iter().map(|k| k.y).fold(f32::MAX, f32::min);
                     self.origin = (min_x, min_y);
+                    let centres: Vec<(usize, f32, f32)> =
+                        layout.keys.iter().map(|k| (k.index, k.x + k.width / 2.0, k.y + k.height / 2.0)).collect();
+                    self.sim = Some(Sim::new(&centres));
                     self.conn = Conn::Up { board, layout, info };
                     if !self.starters_done {
                         self.starters_done = true;
@@ -312,13 +327,24 @@ impl State {
         }
         let before = self.toasts.len();
         self.toasts.retain(|(_, err, at)| at.elapsed() < Duration::from_secs(if *err { 8 } else { 4 }));
+        let page = ui.global::<UiState>().get_page();
+        self.sim_frame = None;
+        if page == P_LIGHTING && self.simulate {
+            if let (Some(sim), Some(l), Some((board, _))) = (self.sim.as_mut(), self.light_form, match &self.conn {
+                Conn::Up { board, layout, .. } => Some((board, layout)),
+                _ => None,
+            }) {
+                let multicolor = l.color_mode == 1 || board.lighting.mode(l.mode).is_some_and(|m| !m.color);
+                self.sim_frame = Some(sim.render(&l, multicolor));
+            }
+        }
         if changed {
             self.push_all(ui);
         } else {
             if before != self.toasts.len() {
                 self.push_toasts(ui);
             }
-            if self.running.is_some() && ui.global::<UiState>().get_page() == P_EFFECTS {
+            if (self.running.is_some() && page == P_EFFECTS) || self.sim_frame.is_some() {
                 self.push_keys(ui);
             }
         }
@@ -378,7 +404,12 @@ impl State {
             return;
         };
         let page = g.get_page();
-        let live = if page == P_EFFECTS { self.worker.live.lock().ok().and_then(|f| *f) } else { None };
+        let live = match page {
+            P_EFFECTS => self.worker.live.lock().ok().and_then(|f| *f),
+            P_LIGHTING => self.sim_frame,
+            _ => None,
+        };
+        g.set_keys_badge(if live.is_some() && page == P_LIGHTING { "Simulation".into() } else { "".into() });
         let (ox, oy) = self.origin;
         let keys: Vec<KeyCap> = layout
             .keys
@@ -475,6 +506,7 @@ impl State {
         g.set_light_dirty(self.lighting != Some(l));
         g.set_live_preview(self.live_preview);
         g.set_previewing(self.previewing);
+        g.set_simulate(self.simulate);
     }
 
     fn push_effects(&self, ui: &AppWindow) {
@@ -736,7 +768,11 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     });
 
     on!(on_board_click, |s, ui, x: f32, y: f32, add: bool| {
-        match s.hit(x, y) {
+        let hit = s.hit(x, y);
+        if let (Some(i), Some(sim)) = (hit, s.sim.as_mut()) {
+            sim.press(i);
+        }
+        match hit {
             Some(i) if add => {
                 if !s.selected.remove(&i) {
                     s.selected.insert(i);
@@ -870,6 +906,9 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         s.cancel_preview();
         s.light_form = s.lighting;
         s.color_touched = false;
+    });
+    on!(on_light_sim_toggled, |s, ui, on: bool| {
+        s.simulate = on;
     });
     on!(on_light_preview_toggled, |s, ui, on: bool| {
         s.live_preview = on;

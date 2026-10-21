@@ -155,7 +155,13 @@ export component LightingPage inherits VerticalLayout {
                 }
             }
             if UiState.previewing: Chip { text: "Previewing"; y: (parent.height - self.height) / 2; }
-            Text { text: "Live preview"; color: Theme.muted; vertical-alignment: center; }
+            Text { text: "On screen"; color: Theme.muted; vertical-alignment: center; }
+            Toggle {
+                y: (parent.height - self.height) / 2;
+                checked <=> UiState.simulate;
+                toggled(on) => { Actions.light-sim-toggled(on); }
+            }
+            Text { text: "On keyboard"; color: Theme.muted; vertical-alignment: center; }
             Toggle {
                 y: (parent.height - self.height) / 2;
                 checked <=> UiState.live-preview;
