@@ -95,6 +95,7 @@ enum ActCmd {
     },
     /// Set actuation for keys; with --rt also enables rapid trigger.
     Set {
+        /// Comma-separated key names, or `all`.
         #[arg(long)]
         keys: String,
         /// Actuation point in mm.
@@ -104,9 +105,21 @@ enum ActCmd {
         #[arg(long)]
         rt: Option<String>,
     },
+    /// Put keys back on the firmware default actuation (as shipped).
+    Reset {
+        /// Comma-separated key names, or `all`.
+        #[arg(long, default_value = "all")]
+        keys: String,
+    },
 }
 
 fn main() {
+    // Exit quietly when output is cut off (`aether backups | head`) instead of
+    // panicking on a broken pipe, as command-line tools are expected to.
+    // SAFETY: restores the default disposition before any other thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     if let Err(e) = run(Cli::parse()) {
         eprintln!("error: {e:#}");
@@ -131,7 +144,11 @@ fn parse_color(s: &str) -> Result<[u8; 3]> {
     Ok([(v >> 16) as u8, (v >> 8) as u8, v as u8])
 }
 
+/// Key names separated by commas, or `all` for every key on the board.
 fn key_indices(kb: &dyn Keyboard, list: &str) -> Result<Vec<usize>> {
+    if list.trim().eq_ignore_ascii_case("all") {
+        return Ok(kb.layout().keys.iter().map(|k| k.index).collect());
+    }
     list.split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -291,12 +308,23 @@ fn actuation(c: ActCmd) -> Result<()> {
                     Actuation::RapidTrigger { travel_mm: travel, press_mm, release_mm }
                 }
             };
-            kb.validate_actuation(&indices, setting)?;
-            backup_first(kb.as_mut())?;
-            kb.set_actuation(&indices, setting)?;
+            write_actuation(kb.as_mut(), &indices, setting)?;
             println!("set {} key(s) and verified by read-back", indices.len());
         }
+        ActCmd::Reset { keys } => {
+            let indices = key_indices(kb.as_ref(), &keys)?;
+            write_actuation(kb.as_mut(), &indices, Actuation::Default)?;
+            println!("{} key(s) back on the firmware default, verified by read-back", indices.len());
+        }
     }
+    Ok(())
+}
+
+/// Validate, back up, write and verify.
+fn write_actuation(kb: &mut dyn Keyboard, indices: &[usize], setting: Actuation) -> Result<()> {
+    kb.validate_actuation(indices, setting)?;
+    backup_first(kb)?;
+    kb.set_actuation(indices, setting)?;
     Ok(())
 }
 

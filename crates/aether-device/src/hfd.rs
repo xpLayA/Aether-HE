@@ -88,6 +88,7 @@ impl<T: Transport> Hfd<T> {
             }
         };
         match setting {
+            Actuation::Default => Ok(()),
             Actuation::Fixed { travel_mm } => in_range(travel_mm, lim.travel_mm, "travel"),
             Actuation::RapidTrigger { travel_mm, press_mm, release_mm } => {
                 self.require(self.board.capabilities.rapid_trigger, "rapid trigger")?;

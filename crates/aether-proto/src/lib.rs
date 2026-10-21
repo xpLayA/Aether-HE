@@ -355,6 +355,9 @@ pub enum Actuation {
     Fixed { travel_mm: f64 },
     /// Rapid trigger. A zero release falls back to the press value.
     RapidTrigger { travel_mm: f64, press_mm: f64, release_mm: f64 },
+    /// Clear the key's record: the firmware default, as the board ships
+    /// (an all-zero table is the factory state read from the F75).
+    Default,
 }
 
 /// The whole 1008-byte actuation table, kept as raw bytes so untouched keys
@@ -414,6 +417,7 @@ impl ActTable {
                         release: mm_to_raw(release),
                     }
                 }
+                Actuation::Default => ActRecord::default(),
             };
             self.set_record(i, new);
         }
@@ -492,6 +496,9 @@ mod tests {
         t.apply(&[3], Actuation::RapidTrigger { travel_mm: 1.5, press_mm: 0.3, release_mm: 0.0 });
         assert_eq!(t.record(3), ActRecord { axis: 7, flags: 3, trip: 150, press: 30, release: 30 });
         assert_eq!(t.record(4), before_neighbour);
+        t.apply(&[3], Actuation::Default);
+        assert!(t.record(3).is_empty());
+        assert_eq!(t, ActTable::default(), "back to the factory table");
     }
 
     #[test]

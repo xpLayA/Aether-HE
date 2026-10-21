@@ -59,6 +59,12 @@ fn actuation_writes_match_python() {
 
     frames_eq(&ActTable::default().write_frames(), &w["empty"]);
 
+    // Reset to default writes exactly the factory (all-empty) table.
+    let mut t = ActTable::default();
+    t.apply(&[34, 49], Actuation::Fixed { travel_mm: 2.0 });
+    t.apply(&[34, 49], Actuation::Default);
+    frames_eq(&t.write_frames(), &w["empty"]);
+
     let mut t = ActTable::default();
     t.apply(&[34], Actuation::Fixed { travel_mm: 1.50 });
     frames_eq(&t.write_frames(), &w["w_fixed_1_50"]);

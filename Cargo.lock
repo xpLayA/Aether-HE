@@ -30,6 +30,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "env_logger",
+ "libc",
 ]
 
 [[package]]

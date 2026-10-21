@@ -83,11 +83,24 @@ impl Backup {
     }
 
     /// Save as `<board>-<unix time>.json` in `dir`.
+    /// Never overwrites: two backups in the same second get consecutive
+    /// timestamps, so the oldest/latest order stays exact.
     pub fn save_in(&self, dir: &Path) -> Result<PathBuf> {
         std::fs::create_dir_all(dir)?;
-        let path = dir.join(format!("{}-{}.json", self.board, self.created_unix));
-        self.save_to(&path)?;
-        Ok(path)
+        let mut b = self.clone();
+        loop {
+            let path = dir.join(format!("{}-{}.json", b.board, b.created_unix));
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(mut f) => {
+                    use std::io::Write;
+                    let text = serde_json::to_string_pretty(&b).map_err(|e| Error::Data(e.to_string()))?;
+                    f.write_all((text + "\n").as_bytes())?;
+                    return Ok(path);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => b.created_unix += 1,
+                Err(e) => return Err(e.into()),
+            }
+        }
     }
 
     pub fn save_to(&self, path: &Path) -> Result<()> {
@@ -178,6 +191,21 @@ mod tests {
         let times: Vec<u64> = list_in(&dir, "aula-f75-he").into_iter().map(|(t, _)| t).collect();
         assert_eq!(times, [999999999, 1792590510, 1792591950], "numeric, not lexical, order");
         assert_eq!(list_in(&dir, "").len(), 4);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn same_second_backups_never_overwrite() {
+        let dir = std::env::temp_dir().join(format!("aether-same-{}", std::process::id()));
+        let mut b = Backup::capture(&mut f75(FakeBoard::new())).unwrap();
+        b.created_unix = 1_000;
+        let p1 = b.save_in(&dir).unwrap();
+        b.actuation = "00".repeat(aether_proto::ACT_TABLE_SIZE - 1) + "07";
+        let p2 = b.save_in(&dir).unwrap();
+        assert_ne!(p1, p2);
+        assert_ne!(Backup::load(&p1).unwrap().actuation, Backup::load(&p2).unwrap().actuation);
+        let order: Vec<PathBuf> = list_in(&dir, &b.board).into_iter().map(|(_, p)| p).collect();
+        assert_eq!(order, [p1, p2], "the later save sorts last");
         std::fs::remove_dir_all(dir).ok();
     }
 
