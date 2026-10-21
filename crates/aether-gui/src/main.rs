@@ -12,9 +12,11 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use aether_device::{Backup, Board, Colors, EffectSpec, Layout, PRESETS, Profile, backups_dir, profiles_dir};
+use aether_device::{
+    Advanced, Backup, Board, Colors, EffectSpec, KeyTables, Layout, PRESETS, Profile, backups_dir, describe, profiles_dir, usage_for_code,
+};
 use aether_effects::Kind;
-use aether_proto::{ActTable, Actuation, DeviceInfo, LIGHT_MODE_CUSTOM, Lighting, raw_to_mm};
+use aether_proto::{ActTable, Actuation, DeviceInfo, DksSlot, KeyAction, LIGHT_MODE_CUSTOM, Lighting, SocdMode, raw_to_mm};
 use serde::{Deserialize, Serialize};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use firmware_sim::Sim;
@@ -22,12 +24,20 @@ use worker::{Cmd, Event, Worker};
 
 slint::include_modules!();
 
-const PAGES: [&str; 7] = ["profiles", "lighting", "effects", "actuation", "live", "backups", "device"];
+const PAGES: [&str; 8] = ["profiles", "lighting", "effects", "actuation", "keys", "live", "backups", "device"];
 const P_LIGHTING: i32 = 1;
 const P_EFFECTS: i32 = 2;
 /// Minimum gap between lighting previews sent while you drag a slider.
 const PREVIEW_GAP: Duration = Duration::from_millis(250);
 const P_ACTUATION: i32 = 3;
+const P_KEYS: i32 = 4;
+/// Keys page function picker: None, DKS, Mod-tap, Toggle, Rapid snap, SOCD.
+const ADV_NONE: i32 = 0;
+const ADV_DKS: i32 = 1;
+const ADV_MT: i32 = 2;
+const ADV_TGL: i32 = 3;
+const ADV_RS: i32 = 4;
+const ADV_SOCD: i32 = 5;
 
 fn main() -> Result<(), slint::PlatformError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
@@ -157,6 +167,14 @@ struct State {
     toasts: Vec<(String, bool, Instant)>,
     confirm: Option<Confirm>,
     busy: bool,
+    /// Key records and DKS table, on boards with advanced keys.
+    ktab: Option<KeyTables>,
+    /// Keys page: the key picker entries ("—" first) and their usages.
+    key_names: Vec<(String, u8)>,
+    dks_keys: [usize; 4],
+    /// action * 4 + point: 0 nothing, 1 tap, 2 hold
+    dks_cells: [u8; 16],
+    pair_swap: bool,
     /// Work out the active profile once the first actuation table arrives.
     resolve_active: bool,
     /// Layout offset so the drawn keyboard starts at (0, 0).
@@ -257,6 +275,11 @@ impl State {
             confirm: None,
             busy: true,
             resolve_active: false,
+            ktab: None,
+            key_names: Vec::new(),
+            dks_keys: [0; 4],
+            dks_cells: [0; 16],
+            pair_swap: false,
             origin: (0.0, 0.0),
             live_preview: saved.live_preview,
             previewing: false,
@@ -373,6 +396,9 @@ impl State {
                     let centres: Vec<(usize, f32, f32)> =
                         layout.keys.iter().map(|k| (k.index, k.x + k.width / 2.0, k.y + k.height / 2.0)).collect();
                     self.sim = Some(Sim::new(&centres));
+                    self.key_names = std::iter::once(("—".to_string(), 0))
+                        .chain(layout.keys.iter().filter_map(|k| usage_for_code(&k.code).map(|u| (k.name.clone(), u))))
+                        .collect();
                     self.conn = Conn::Up { board, layout, info };
                     self.reload_profiles();
                     self.resolve_active = true;
@@ -390,6 +416,7 @@ impl State {
                     self.leds = Some(*c);
                     self.leds_form = Some(*c);
                 }
+                Event::Keys(t) => self.ktab = Some(*t),
                 Event::Actuation(t) => {
                     self.table = Some(t);
                     self.resolve_active();
@@ -457,6 +484,7 @@ impl State {
         self.push_lighting(ui);
         self.push_effects(ui);
         self.push_actuation(ui);
+        self.push_adv(ui);
         self.push_backups(ui);
         self.push_device(ui);
         self.push_toasts(ui);
@@ -487,7 +515,13 @@ impl State {
         g.set_profile_builtin(model(self.profiles.iter().map(|p| p.builtin).collect()));
     }
 
-    fn key_info(&self, idx: usize) -> String {
+    fn key_info(&self, idx: usize, page: i32) -> String {
+        if page == P_KEYS {
+            return match (&self.ktab, self.up()) {
+                (Some(t), Some((_, layout))) => describe(layout, t.keys.action(idx), &t.dks),
+                _ => String::new(),
+            };
+        }
         match self.table.as_ref().map(|t| t.record(idx)) {
             Some(r) if r.is_empty() => "firmware default".into(),
             Some(r) if r.rapid_trigger() => {
@@ -525,6 +559,11 @@ impl State {
                 let (mut fill, mut value) = (KEY_FACE, String::new());
                 if let Some(f) = &live {
                     fill = f[k.index];
+                } else if page == P_KEYS {
+                    if let Some(a) = self.ktab.as_ref().map(|t| t.keys.action(k.index)).filter(|a| a.is_advanced()) {
+                        fill = mix(KEY_FACE, [139, 92, 246], 0.55);
+                        value = a.badge().into();
+                    }
                 } else if page == P_ACTUATION {
                     if let Some(r) = self.table.as_ref().map(|t| t.record(k.index)).filter(|r| !r.is_empty()) {
                         let mm = raw_to_mm(r.trip);
@@ -555,7 +594,7 @@ impl State {
         match self.hovered.and_then(|i| layout.key(i)) {
             Some(k) => {
                 g.set_hover_key(k.name.clone().into());
-                g.set_hover_info(self.key_info(k.index).into());
+                g.set_hover_info(self.key_info(k.index, page).into());
             }
             None => {
                 g.set_hover_key("".into());
@@ -660,6 +699,154 @@ impl State {
             g.set_rt_min(a.rt_mm[0] as f32);
             g.set_rt_max(a.rt_mm[1] as f32);
             g.set_rt_ok(board.capabilities.rapid_trigger);
+        }
+    }
+
+    /// The two selected keys of a pair, in key 1 / key 2 order.
+    fn pair(&self) -> Option<(usize, usize)> {
+        let v: Vec<usize> = self.selected.iter().copied().collect();
+        match v[..] {
+            [a, b] if self.pair_swap => Some((b, a)),
+            [a, b] => Some((a, b)),
+            _ => None,
+        }
+    }
+
+    fn key_name(&self, idx: usize) -> String {
+        self.up().and_then(|(_, l)| l.key(idx)).map_or(format!("#{idx}"), |k| k.name.clone())
+    }
+
+    /// The Keys page form as a function for one key, or why it isn't ready.
+    fn adv_request(&self, g: &UiState) -> Result<Vec<(usize, Advanced)>, String> {
+        let one = || match self.selected.len() {
+            1 => Ok(*self.selected.first().unwrap_or(&0)),
+            _ => Err("Select one key on the keyboard above".to_string()),
+        };
+        let usage = |i: i32| self.key_names.get(i.max(0) as usize).map_or(0, |k| k.1);
+        Ok(match g.get_adv_kind() {
+            ADV_NONE => {
+                let t = self.ktab.as_ref().ok_or("Reading the keyboard…")?;
+                let v: Vec<(usize, Advanced)> =
+                    self.selected.iter().filter(|&&i| t.keys.action(i).is_advanced()).map(|&i| (i, Advanced::Off)).collect();
+                if v.is_empty() {
+                    return Err("Select keys that have a function to remove it".into());
+                }
+                v
+            }
+            ADV_TGL => vec![(one()?, Advanced::Toggle)],
+            ADV_MT => {
+                let (tap, hold) = (usage(g.get_adv_tap()), usage(g.get_adv_hold()));
+                if tap == 0 || hold == 0 {
+                    return Err("Choose the tap and hold keys".into());
+                }
+                vec![(one()?, Advanced::ModTap { tap, hold, delay_ms: g.get_adv_delay().round() as u16 })]
+            }
+            ADV_RS | ADV_SOCD => {
+                let (a, b) = self.pair().ok_or("Select two keys on the keyboard above")?;
+                let mode = SocdMode::ALL[g.get_adv_socd().clamp(0, 3) as usize];
+                vec![(a, if g.get_adv_kind() == ADV_RS { Advanced::Rs { partner: b } } else { Advanced::Socd { partner: b, mode } })]
+            }
+            _ => {
+                let idx = one()?;
+                let mut actions = [0u8; 4];
+                let mut masks = [0u8; 4];
+                for a in 0..4 {
+                    actions[a] = self.key_names.get(self.dks_keys[a]).map_or(0, |k| k.1);
+                    for p in 0..4 {
+                        match self.dks_cells[a * 4 + p] {
+                            1 if actions[a] != 0 => masks[p] |= 1 << a,
+                            2 if actions[a] != 0 => masks[p] |= 0x10 << a,
+                            _ => {}
+                        }
+                    }
+                }
+                if masks.iter().all(|&m| m == 0) {
+                    return Err("Choose a key and click at least one point for it".into());
+                }
+                let (press, bottom) = (g.get_adv_press() as f64, g.get_adv_bottom() as f64);
+                if bottom <= press {
+                    return Err("The bottom-out point must be deeper than the press point".into());
+                }
+                vec![(idx, Advanced::Dks(DksSlot::new(press, bottom, actions, masks)))]
+            }
+        })
+    }
+
+    fn push_adv(&self, ui: &AppWindow) {
+        let g = ui.global::<UiState>();
+        g.set_adv_key_names(model(self.key_names.iter().map(|k| SharedString::from(k.0.as_str())).collect()));
+        g.set_adv_dks_keys(model(self.dks_keys.iter().map(|&i| i as i32).collect()));
+        g.set_adv_dks_cells(model(self.dks_cells.iter().map(|&c| c as i32).collect()));
+        let req = self.adv_request(&g);
+        let target = match (&req, g.get_adv_kind()) {
+            (Ok(_), ADV_RS | ADV_SOCD) => self.pair().map_or(String::new(), |(a, b)| format!("Key 1: {} · Key 2: {}", self.key_name(a), self.key_name(b))),
+            (Ok(v), _) => format!("Selected: {}", v.iter().map(|(i, _)| self.key_name(*i)).collect::<Vec<_>>().join(", ")),
+            (Err(why), _) => why.clone(),
+        };
+        g.set_adv_target(target.into());
+        g.set_adv_ready(req.is_ok());
+        let rows = match (&self.ktab, self.up()) {
+            (Some(t), Some((_, layout))) => layout
+                .keys
+                .iter()
+                .filter(|k| t.keys.action(k.index).is_advanced())
+                .map(|k| InfoRow { key: k.name.clone().into(), value: describe(layout, t.keys.action(k.index), &t.dks).into() })
+                .collect(),
+            _ => Vec::new(),
+        };
+        g.set_adv_list(model(rows));
+    }
+
+    /// Show the function of the clicked key (and select its pair partner).
+    fn load_adv(&mut self, idx: usize, g: &UiState) {
+        let Some(t) = &self.ktab else { return };
+        let pos = |u: u8| self.key_names.iter().position(|k| k.1 == u && u != 0).unwrap_or(0);
+        match t.keys.action(idx) {
+            KeyAction::Toggle => g.set_adv_kind(ADV_TGL),
+            KeyAction::ModTap { tap, hold, delay_ms } => {
+                g.set_adv_kind(ADV_MT);
+                g.set_adv_tap(pos(tap) as i32);
+                g.set_adv_hold(pos(hold) as i32);
+                g.set_adv_delay(delay_ms as f32);
+            }
+            a @ (KeyAction::Rs { .. } | KeyAction::Socd { .. }) => {
+                if let KeyAction::Socd { mode, .. } = a {
+                    g.set_adv_kind(ADV_SOCD);
+                    g.set_adv_socd(SocdMode::ALL.iter().position(|m| *m == mode).unwrap_or(0) as i32);
+                } else {
+                    g.set_adv_kind(ADV_RS);
+                }
+                if let Some(p) = t.keys.partner(idx) {
+                    self.selected.insert(p);
+                    // key 1 is the one whose usage comes first in the record
+                    let first = match a {
+                        KeyAction::Rs { a, .. } | KeyAction::Socd { a, .. } => a,
+                        _ => 0,
+                    };
+                    let lower = idx.min(p);
+                    let lower_usage = self.up().and_then(|(_, l)| l.key(lower)).and_then(|k| usage_for_code(&k.code));
+                    self.pair_swap = lower_usage != Some(first);
+                }
+            }
+            KeyAction::Dks { slot } => {
+                g.set_adv_kind(ADV_DKS);
+                let s = t.dks.slot(slot as usize);
+                g.set_adv_press(s.points[0] as f32 / 10.0);
+                g.set_adv_bottom(s.points[1] as f32 / 10.0);
+                for a in 0..4 {
+                    self.dks_keys[a] = pos(s.actions[a]);
+                    for p in 0..4 {
+                        self.dks_cells[a * 4 + p] = if s.masks[p] & (1 << a) != 0 {
+                            1
+                        } else if s.masks[p] & (0x10 << a) != 0 {
+                            2
+                        } else {
+                            0
+                        };
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -918,6 +1105,10 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
             // Not `send`: a press shouldn't flash the busy spinner.
             s.worker.send(Cmd::Press(i));
         }
+        let on_keys = ui.global::<UiState>().get_page() == P_KEYS;
+        if on_keys && !add {
+            s.pair_swap = false;
+        }
         match hit {
             Some(i) if add => {
                 if !s.selected.remove(&i) {
@@ -928,6 +1119,9 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
             Some(i) => s.selected = BTreeSet::from([i]),
             None if !add => s.selected.clear(),
             None => {}
+        }
+        if let (true, Some(i), 1) = (on_keys, hit, s.selected.len()) {
+            s.load_adv(i, &ui.global::<UiState>());
         }
     });
     on!(on_board_rect, |s, ui, x0: f32, y0: f32, x1: f32, y1: f32, add: bool| {
@@ -957,7 +1151,7 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
                 match h.and_then(|i| s.up().and_then(|(_, l)| l.key(i)).map(|k| (k.index, k.name.clone()))) {
                     Some((i, n)) => {
                         g.set_hover_key(n.into());
-                        g.set_hover_info(s.key_info(i).into());
+                        g.set_hover_info(s.key_info(i, g.get_page()).into());
                     }
                     None => {
                         g.set_hover_key("".into());
@@ -1130,6 +1324,42 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     });
     on!(on_act_read, |s, ui| {
         s.send(Cmd::ReadActuation);
+    });
+
+    {
+        // The form changed: only the target line and Apply button need updating.
+        let (st, weak) = (state.clone(), ui.as_weak());
+        a.on_adv_edited(move || {
+            if let Some(ui) = weak.upgrade() {
+                st.borrow().push_adv(&ui);
+            }
+        });
+    }
+    on!(on_adv_reread, |s, ui| {
+        s.send(Cmd::ReadKeys);
+    });
+    on!(on_adv_swap, |s, ui| {
+        s.pair_swap = !s.pair_swap;
+    });
+    on!(on_adv_dks_key, |s, ui, a: i32, i: i32| {
+        if let Some(slot) = s.dks_keys.get_mut(a.max(0) as usize) {
+            *slot = i.max(0) as usize;
+        }
+    });
+    on!(on_adv_dks_cell, |s, ui, a: i32, p: i32| {
+        if let Some(c) = s.dks_cells.get_mut((a.max(0) * 4 + p.max(0)) as usize) {
+            *c = (*c + 1) % 3;
+        }
+    });
+    on!(on_adv_apply, |s, ui| {
+        match s.adv_request(&ui.global::<UiState>()) {
+            Ok(v) => {
+                for (key, adv) in v {
+                    s.send_edit(Cmd::SetAdvanced { key, adv }, None);
+                }
+            }
+            Err(why) => s.toast(why, true),
+        }
     });
 
     on!(on_backup_now, |s, ui| {

@@ -39,6 +39,9 @@ with an automatic backup before every change.
   - **Reactive:** ripple (a ring spreading from the key you press), splash, cross, sparks, afterglow,
     heatmap and lightning. They read key presses from the keyboard itself (read-only, never stored);
     clicking keys on screen triggers them too.
+- **Advanced keys** (stored on the keyboard, work without the app): DKS (up to four keys at four
+  points of one press), mod-tap (tap / hold), toggle, rapid snap (RS: the deeper of two keys wins) and
+  SOCD (last input / key 1 / key 2 / neutral). Removing one puts the key back exactly as it was.
 - **Actuation and rapid trigger:**
   - Per key, from 0.10 to 3.40 mm.
   - One-click presets: Competitive, Gaming, Balanced, Typing, Default.
@@ -156,6 +159,9 @@ aether actuation set --keys W,A,S,D --travel 0.8 --rt 0.15
 aether actuation set --keys all --travel 1.2
 aether actuation reset [--keys all]          # back to firmware default
 aether profile list | save NAME | update NAME | apply NAME | duplicate NAME NEW | rename NAME NEW | delete NAME
+aether keys list | off KEY | tgl KEY | mt KEY --tap Esc --hold L-Ctrl --ms 200
+aether keys rs A D | socd A D --mode last|key1|key2|neutral
+aether keys dks F --press 1.0 --bottom 3.0 --act F:t--- --act G:-t--   # t tap, h hold, per point
 aether effect rain --colors 00ff80,0080ff --seconds 30   # Ctrl+C stops, lighting restored
 aether backup [--out FILE]
 aether backups                                # oldest first

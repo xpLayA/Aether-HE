@@ -11,7 +11,7 @@ mod keys_in;
 mod profile;
 mod transport;
 
-pub use advanced::{Advanced, plan_advanced};
+pub use advanced::{Advanced, describe, plan_advanced, usage_name};
 pub use backup::{Backup, Colors, KeyTables, SavedLighting, backups_dir};
 pub use data::{
     ActuationLimits, Board, Capabilities, Key, Layout, LightMode, LightingInfo, Registry, data_dir,

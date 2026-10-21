@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use aether_device::{Advanced, BUILTINS, Backup, KeyPresses, Keyboard, PRESETS, plan_advanced, usage_for_code, Profile, Registry, backups_dir, open_first, profiles_dir};
+use aether_device::{Advanced, BUILTINS, describe, Backup, KeyPresses, Keyboard, PRESETS, plan_advanced, usage_for_code, Profile, Registry, backups_dir, open_first, profiles_dir};
 use aether_effects::{Direction, Engine, KeyPos, Kind, Params};
-use aether_proto::{Actuation, DksSlot, DksTable, KeyAction, Lighting, SocdMode, raw_to_mm};
+use aether_proto::{Actuation, DksSlot, Lighting, SocdMode, raw_to_mm};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 
@@ -457,31 +457,6 @@ fn one_key(kb: &dyn Keyboard, name: &str) -> Result<usize> {
     kb.layout().find(name).map(|k| k.index).ok_or_else(|| anyhow!("no key named {name:?}"))
 }
 
-/// One line describing a key's record, with key names for usages.
-fn describe(kb: &dyn Keyboard, a: KeyAction, dks: &DksTable) -> String {
-    let name = |u: u8| {
-        kb.layout().keys.iter().find(|k| usage_for_code(&k.code) == Some(u)).map_or(format!("usage {u:#04x}"), |k| k.name.clone())
-    };
-    match a {
-        KeyAction::Toggle => "toggle".into(),
-        KeyAction::ModTap { tap, hold, delay_ms } => format!("mod-tap: tap {}, hold {} after {delay_ms} ms", name(tap), name(hold)),
-        KeyAction::Rs { a, b } => format!("rapid snap {} + {}", name(a), name(b)),
-        KeyAction::Socd { mode, a, b } => format!("SOCD {} + {}: {}", name(a), name(b), mode.label()),
-        KeyAction::Dks { slot } => {
-            let s = dks.slot(slot as usize);
-            let acts: Vec<String> = (0..4)
-                .filter(|&i| s.actions[i] != 0)
-                .map(|i| {
-                    let pts: String = s.masks.iter().map(|m| if m & (1 << i) != 0 { 't' } else if m & (0x10 << i) != 0 { 'h' } else { '-' }).collect();
-                    format!("{}:{pts}", name(s.actions[i]))
-                })
-                .collect();
-            format!("DKS slot {slot}, press {:.1} / bottom {:.1} mm, {}", s.points[0] as f64 / 10.0, s.points[1] as f64 / 10.0, acts.join(" "))
-        }
-        other => format!("{other:?}"),
-    }
-}
-
 fn keys(c: KeysCmd) -> Result<()> {
     let mut kb = connect()?;
     if !kb.board().capabilities.advanced_keys {
@@ -495,7 +470,7 @@ fn keys(c: KeysCmd) -> Result<()> {
                 let a = table.action(k.index);
                 if a.is_advanced() {
                     any = true;
-                    println!("{:<10} {}", k.name, describe(kb.as_ref(), a, &dks));
+                    println!("{:<10} {}", k.name, describe(kb.layout(), a, &dks));
                 }
             }
             if !any {
@@ -555,7 +530,7 @@ fn keys(c: KeysCmd) -> Result<()> {
     kb.write_key_table(&new_keys)?;
     let name = layout.key(idx).map_or(String::new(), |k| k.name.clone());
     let what = match new_keys.action(idx) {
-        a if a.is_advanced() => describe(kb.as_ref(), a, &new_dks),
+        a if a.is_advanced() => describe(kb.layout(), a, &new_dks),
         _ => "an ordinary key".into(),
     };
     println!("{name} is now {what} (verified by read-back)");

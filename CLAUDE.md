@@ -62,14 +62,19 @@ Regenerate golden frames after changing the Python reference:
   (`docs/context/f75-bringup/f75_custom_led_rt.py`). Capability `per_key_store`; in backups and profiles.
 - Key presses for reactive effects: the board's keyboard collections (if0 boot `[mods][0][6 usages]`,
   if1 report 1 = NKRO bitmap of usages 0x00..0x77), read-only, `aether-device/src/keys_in.rs`.
-- `0x12` key table read-only so far (matches the layout; F1–F12 base records empty = default).
+- `0x12`/`0x22` key records `[type][p1][p2][p3]` (2 key, 8 DKS slot, 9 MT tap/hold/delay÷10ms, 0A TGL,
+  0B SOCD mode/a/b and 0C RS 0/a/b on BOTH keys of a pair; usages, not indices). `0x18`/`0x28` DKS table,
+  64 × 16 B, points in 0.1 mm. Write DKS before keys. All wire-verified on the F75 2026-10-21
+  (`f75_keytable_rt.py`); F1–F12 base records are empty and "off" restores the pre-Aether record
+  (`Backup::original_key_table`). SOCD modes: 3 last input, 1 key 1, 2 key 2, 4 neutral.
 - **No live key depth**: `0x66` travel-test is acked but streams nothing; the vendor's depth view uses
   calibration mode, which we never send. `0x60` untried.
 
 ## Verified status (F75 HE, 2026-10-21)
 Lighting ✔ · host effects ✔ (incl. reactive) · stored per-key colours ✔ (wire-verified) · actuation /
-rapid trigger ✔ (stored and felt) · backups, profiles, reset-to-default ✔. Not implemented / unverified: remap, macros, SOCD, advanced keys, dead zones,
-calibration, live depth, 2.4 GHz dongle.
+rapid trigger ✔ (stored and felt) · advanced keys DKS/MT/TGL/SOCD/RS ✔ (wire-verified; feel pending) ·
+backups, profiles, reset-to-default ✔. Not implemented / unverified: plain remap UI, macros, dead zones,
+calibration, live depth, 2.4 GHz dongle. DKS "hold" bits are source-only (never captured).
 
 ## Data on disk
 Backups `~/.local/share/aether-he/backups/<board>-<unix>.json` (taken before every change; the oldest

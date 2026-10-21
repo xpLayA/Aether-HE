@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use aether_device::{Backup, Board, Colors, EffectSpec, KeyPresses, Keyboard, Layout, Profile};
+use aether_device::{Advanced, Backup, Board, Colors, EffectSpec, KeyPresses, KeyTables, Keyboard, Layout, Profile, plan_advanced};
 use aether_effects::{Direction, Engine, Frame, KeyPos, Kind, Params};
 use aether_proto::{ActTable, Actuation, DeviceInfo, Lighting};
 
@@ -26,6 +26,9 @@ pub enum Cmd {
     CancelPreview,
     ReadActuation,
     SetActuation { keys: Vec<usize>, setting: Actuation },
+    ReadKeys,
+    /// Put an advanced function on (or take it off) one key.
+    SetAdvanced { key: usize, adv: Advanced },
     StartEffect(EffectSpec),
     StopEffect,
     /// A key clicked on screen, for reactive effects.
@@ -46,6 +49,8 @@ pub enum Event {
     /// The per-key colours stored on the board.
     CustomLeds(Box<Colors>),
     Actuation(ActTable),
+    /// Key records and DKS table (boards with advanced keys).
+    Keys(Box<KeyTables>),
     EffectRunning(Option<EffectSpec>),
     Previewing(bool),
     ProfileApplied(Profile),
@@ -178,6 +183,7 @@ impl State {
                 self.emit(Event::Connected { board, layout, info });
                 self.read_lighting();
                 self.read_actuation();
+                self.read_keys();
             }
             Err(e) => self.emit(Event::Disconnected(e.to_string())),
         }
@@ -229,6 +235,15 @@ impl State {
         let r = self.kb().and_then(|kb| kb.actuation_table());
         match r {
             Ok(t) => self.emit(Event::Actuation(t)),
+            Err(e) => self.report::<()>(Err(e), |_| None),
+        }
+    }
+
+    fn read_keys(&mut self) {
+        let r = self.kb().and_then(|kb| KeyTables::read(kb.as_mut()));
+        match r {
+            Ok(Some(t)) => self.emit(Event::Keys(Box::new(t))),
+            Ok(None) => {}
             Err(e) => self.report::<()>(Err(e), |_| None),
         }
     }
@@ -305,6 +320,26 @@ impl State {
                 self.emit(Event::BackupsChanged);
                 self.read_actuation();
             }
+            Cmd::ReadKeys => self.read_keys(),
+            Cmd::SetAdvanced { key, adv } => {
+                let r = self.paused(|kb| {
+                    let (keys, dks) = (kb.key_table()?, kb.dks_table()?);
+                    let slug = kb.board().slug.clone();
+                    let original = Backup::original_key_table(&slug)?.unwrap_or_else(|| keys.clone());
+                    let layout = kb.layout().clone();
+                    let (new_keys, new_dks) = plan_advanced(&keys, &dks, &layout, &original, key, adv)?;
+                    Backup::snapshot(kb)?;
+                    if new_dks != dks {
+                        kb.write_dks_table(&new_dks)?;
+                    }
+                    kb.write_key_table(&new_keys)?;
+                    Ok(layout.key(key).map_or(String::new(), |k| k.name.clone()))
+                });
+                let off = adv == Advanced::Off;
+                self.report(r, |name| Some(if off { format!("{name} is an ordinary key again") } else { format!("{name} saved to the keyboard (verified)") }));
+                self.emit(Event::BackupsChanged);
+                self.read_keys();
+            }
             Cmd::StartEffect(spec) => {
                 let _ = self.stop_effect();
                 let name = spec.kind.clone();
@@ -333,6 +368,7 @@ impl State {
                 self.report(r, |_| Some("Backup restored (verified)".into()));
                 self.read_lighting();
                 self.read_actuation();
+                self.read_keys();
             }
             Cmd::SaveProfile { name, dir, new } => {
                 let r = self.capture_profile(&name).and_then(|p| if new { p.save_new_in(&dir) } else { p.save_in(&dir) });
@@ -354,6 +390,7 @@ impl State {
                 let ok = r.is_ok();
                 self.report(r, |_| Some(format!("Profile \"{}\" applied", p.name)));
                 self.emit(Event::BackupsChanged);
+                self.read_keys();
                 if ok {
                     if let Some(spec) = p.effect.clone() {
                         let r = self.start_effect(spec);
@@ -383,7 +420,10 @@ impl State {
             true => Some(kb.custom_leds()?),
             false => None,
         };
-        Ok(Profile::new(name, &kb.board().slug, Some(lighting.into()), &table, effect).with_custom_leds(leds.as_ref()))
+        let tables = KeyTables::read(kb.as_mut())?;
+        Ok(Profile::new(name, &kb.board().slug, Some(lighting.into()), &table, effect)
+            .with_custom_leds(leds.as_ref())
+            .with_key_tables(tables.as_ref()))
     }
 
     fn start_effect(&mut self, spec: EffectSpec) -> R<()> {

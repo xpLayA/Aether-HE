@@ -44,7 +44,7 @@ export struct InfoRow {
 }
 
 export global UiState {
-    // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 live, 5 backups, 6 device
+    // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 keys, 5 live, 6 backups, 7 device
     in-out property <int> page;
     // Initial scroll offset (AETHER_SCROLL, for screenshots).
     in property <length> start-scroll;
@@ -123,6 +123,22 @@ export global UiState {
     in property <float> rt-max: 3.4;
     in property <bool> rt-ok: true;
 
+    // advanced keys
+    in-out property <int> adv-kind;
+    in property <string> adv-target;
+    in property <bool> adv-ready;
+    in property <[string]> adv-key-names;
+    in-out property <int> adv-tap;
+    in-out property <int> adv-hold;
+    in-out property <float> adv-delay: 200;
+    in-out property <int> adv-socd;
+    in-out property <float> adv-press: 1.0;
+    in-out property <float> adv-bottom: 3.0;
+    in property <[int]> adv-dks-keys: [0, 0, 0, 0];
+    // action * 4 + point: 0 nothing, 1 tap, 2 hold
+    in property <[int]> adv-dks-cells;
+    in property <[InfoRow]> adv-list;
+
     // backups / device
     in property <[BackupRow]> backups;
     in property <bool> has-original;
@@ -177,6 +193,13 @@ export global Actions {
     callback act-reset-selected();
     callback act-reset-all();
     callback act-read();
+
+    callback adv-edited();
+    callback adv-apply();
+    callback adv-reread();
+    callback adv-swap();
+    callback adv-dks-key(int, int);
+    callback adv-dks-cell(int, int);
 
     callback backup-now();
     callback backup-restore(int);

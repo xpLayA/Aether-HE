@@ -22,6 +22,45 @@ pub enum Advanced {
     Dks(DksSlot),
 }
 
+/// The layout name of the key sending `usage`, or the usage in hex.
+pub fn usage_name(layout: &Layout, usage: u8) -> String {
+    layout.keys.iter().find(|k| usage_for_code(&k.code) == Some(usage)).map_or(format!("usage {usage:#04x}"), |k| k.name.clone())
+}
+
+/// One line describing what a key does, with key names for usages.
+pub fn describe(layout: &Layout, a: KeyAction, dks: &DksTable) -> String {
+    let name = |u: u8| usage_name(layout, u);
+    match a {
+        KeyAction::Toggle => "toggle".into(),
+        KeyAction::ModTap { tap, hold, delay_ms } => format!("mod-tap: tap {}, hold {} after {delay_ms} ms", name(tap), name(hold)),
+        KeyAction::Rs { a, b } => format!("rapid snap {} + {}", name(a), name(b)),
+        KeyAction::Socd { mode, a, b } => format!("SOCD {} + {}: {}", name(a), name(b), mode.label()),
+        KeyAction::Dks { slot } => {
+            let s = dks.slot(slot as usize);
+            const POINTS: [&str; 4] = ["press", "bottom", "lift", "release"];
+            let at = |i: usize, bit: u8| -> Vec<&str> { (0..4).filter(|&p| s.masks[p] & (bit << i) != 0).map(|p| POINTS[p]).collect() };
+            let acts: Vec<String> = (0..4)
+                .filter(|&i| s.actions[i] != 0)
+                .map(|i| {
+                    let (tap, hold) = (at(i, 1), at(i, 0x10));
+                    let mut parts = Vec::new();
+                    if !tap.is_empty() {
+                        parts.push(format!("tap at {}", tap.join(", ")));
+                    }
+                    if !hold.is_empty() {
+                        parts.push(format!("hold from {}", hold.join(", ")));
+                    }
+                    format!("{} ({})", name(s.actions[i]), parts.join("; "))
+                })
+                .collect();
+            format!("DKS at {:.1} / {:.1} mm: {}", s.points[0] as f64 / 10.0, s.points[1] as f64 / 10.0, acts.join(", "))
+        }
+        KeyAction::Key { mods: 0, usage } => name(usage),
+        KeyAction::None => "nothing (firmware default)".into(),
+        other => format!("{other:?}"),
+    }
+}
+
 /// The record `idx` goes back to when its advanced function is removed:
 /// what it was in `original` (the pre-Aether table) unless that was advanced
 /// too, else the key's own usage.

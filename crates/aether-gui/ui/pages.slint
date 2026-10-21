@@ -432,6 +432,139 @@ export component ActuationPage inherits VerticalLayout {
     }
 }
 
+// What each advanced type does, in the vendor's words where they're clear.
+component AdvHelp inherits Text {
+    in property <int> kind;
+    color: Theme.muted;
+    font-size: Theme.font-small;
+    wrap: word-wrap;
+    text: kind == 0 ? "The key works normally. Select keys with a function and Apply to remove it (a pair is removed together)."
+        : kind == 1 ? "Dynamic keystroke: up to four keys, each tapped or held at four points of one press: going down past the press point, reaching the bottom-out point, coming back up from the bottom, and releasing fully."
+        : kind == 2 ? "Mod-tap: a short tap sends one key, holding past the hold time sends another, e.g. Caps Lock: tap = Esc, hold = Ctrl."
+        : kind == 3 ? "Toggle: press once and the key stays held down; press again to release it. For auto-run or holding a button."
+        : kind == 4 ? "Rapid snap (RS): select two keys. While both are pressed, only the one pressed deeper counts, so switching direction is instant."
+        : "SOCD: select two keys (e.g. A and D) and choose what holding both sends.";
+}
+
+component DksCell inherits Rectangle {
+    in property <int> state; // 0 nothing, 1 tap, 2 hold
+    callback clicked;
+    height: 30px;
+    min-width: 64px;
+    border-radius: 8px;
+    background: state == 0 ? (ta.has-hover ? Theme.surface-3 : Theme.surface-2) : state == 1 ? Theme.accent-soft : Theme.warn.with-alpha(0.18);
+    border-width: 1px;
+    border-color: Theme.border;
+    Text {
+        text: root.state == 0 ? "—" : root.state == 1 ? "Tap" : "Hold";
+        color: root.state == 0 ? Theme.faint : root.state == 1 ? Theme.accent : Theme.warn;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component KeysPage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle {
+        title: "Advanced keys";
+        subtitle: "Extra functions stored on the keyboard: they work in every app, in games and on other computers, without Aether running.";
+    }
+    EditingHint { }
+    KeyboardCard { }
+    Card {
+        title: "Function";
+        subtitle: UiState.adv-target;
+        Segmented {
+            options: ["None", "DKS", "Mod-tap", "Toggle", "Rapid snap", "SOCD"];
+            current <=> UiState.adv-kind;
+            changed(i) => { Actions.adv-edited(); }
+        }
+        AdvHelp { kind: UiState.adv-kind; }
+        if UiState.adv-kind == 2: Row {
+            label: "Tap";
+            ComboBox { model: UiState.adv-key-names; current-index <=> UiState.adv-tap; max-width: 220px; selected => { Actions.adv-edited(); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if UiState.adv-kind == 2: Row {
+            label: "Hold";
+            ComboBox { model: UiState.adv-key-names; current-index <=> UiState.adv-hold; max-width: 220px; selected => { Actions.adv-edited(); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if UiState.adv-kind == 2: Row {
+            label: "Hold time";
+            ValueSlider { minimum: 10; maximum: 1000; step: 10; decimals: 0; suffix: " ms"; value <=> UiState.adv-delay; }
+        }
+        if UiState.adv-kind == 5: Row {
+            label: "Both held";
+            Segmented { options: ["Last input wins", "Key 1 wins", "Key 2 wins", "Neutral"]; current <=> UiState.adv-socd; }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if UiState.adv-kind == 4 || UiState.adv-kind == 5: Row {
+            label: "Key order";
+            Btn { text: "Swap key 1 and key 2"; small: true; kind: "ghost"; enabled: UiState.selected-count == 2; clicked => { Actions.adv-swap(); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if UiState.adv-kind == 1: Row {
+            label: "Press point";
+            ValueSlider { minimum: 0.1; maximum: 3.3; step: 0.1; decimals: 1; suffix: " mm"; value <=> UiState.adv-press; }
+        }
+        if UiState.adv-kind == 1: Row {
+            label: "Bottom-out";
+            ValueSlider { minimum: 0.2; maximum: 3.4; step: 0.1; decimals: 1; suffix: " mm"; value <=> UiState.adv-bottom; }
+        }
+        if UiState.adv-kind == 1: VerticalLayout {
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "Sends"; width: 220px; color: Theme.muted; font-size: 12px; }
+                for p in ["Press", "Bottom", "Lift", "Release"]: Text {
+                    text: p; min-width: 64px; horizontal-alignment: center; color: Theme.muted; font-size: 12px;
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            for a in 4: HorizontalLayout {
+                spacing: 8px;
+                ComboBox {
+                    width: 220px;
+                    model: UiState.adv-key-names;
+                    current-index: UiState.adv-dks-keys[a];
+                    selected => { Actions.adv-dks-key(a, self.current-index); }
+                }
+                for p in 4: DksCell {
+                    state: UiState.adv-dks-cells[a * 4 + p];
+                    clicked => { Actions.adv-dks-cell(a, p); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text {
+                text: "Click a cell to cycle nothing → tap → hold. Tap sends a quick press at that point; hold keeps the key down until the next point.";
+                color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn {
+                text: UiState.adv-kind == 0 ? "Remove function" : "Apply to keyboard";
+                kind: "primary";
+                enabled: UiState.adv-ready && UiState.connection == 1 && !UiState.busy;
+                clicked => { Actions.adv-apply(); }
+            }
+            Btn { text: "Re-read"; kind: "ghost"; enabled: !UiState.busy; clicked => { Actions.adv-reread(); } }
+        }
+    }
+    Card {
+        title: "Keys with a function";
+        if UiState.adv-list.length == 0: Text { text: "None yet."; color: Theme.muted; }
+        for row in UiState.adv-list: HorizontalLayout {
+            spacing: 16px;
+            Text { text: row.key; width: 110px; font-weight: 600; color: Theme.text; }
+            Text { text: row.value; color: Theme.muted; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+    }
+}
+
 export component LivePage inherits VerticalLayout {
     spacing: 16px;
     PageTitle { title: "Live depth"; subtitle: "How far each key is pressed, in real time."; }
