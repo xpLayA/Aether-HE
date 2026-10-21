@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use aether_device::{Backup, Keyboard, Registry, backups_dir, open_first};
+use aether_device::{Backup, Keyboard, Profile, Registry, backups_dir, open_first, profiles_dir};
 use aether_effects::{Direction, Engine, KeyPos, Kind, Params};
 use aether_proto::{Actuation, Lighting, raw_to_mm};
 use anyhow::{Context, Result, anyhow, bail};
@@ -45,6 +45,9 @@ enum Cmd {
     /// Actuation point and rapid trigger.
     #[command(subcommand)]
     Actuation(ActCmd),
+    /// Saved setups (lighting + actuation, optionally an effect for the GUI).
+    #[command(subcommand)]
+    Profile(ProfileCmd),
     /// Run a host-driven effect until Ctrl+C (or --seconds), then restore the lighting.
     Effect {
         /// wave, breathe, aurora, comet, tide, twinkle, rain, striation, static
@@ -111,6 +114,18 @@ enum ActCmd {
         #[arg(long, default_value = "all")]
         keys: String,
     },
+}
+
+#[derive(Subcommand)]
+enum ProfileCmd {
+    /// List saved profiles.
+    List,
+    /// Save the board's current lighting and actuation as a profile (replaces one with that name).
+    Save { name: String },
+    /// Apply a profile (backs up first, verifies actuation).
+    Apply { name: String },
+    /// Delete a profile.
+    Delete { name: String },
 }
 
 fn main() {
@@ -203,6 +218,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Light(c) => light(c)?,
         Cmd::Actuation(c) => actuation(c)?,
+        Cmd::Profile(c) => profile(c)?,
         Cmd::Effect { name, colors, speed, brightness, direction, seconds } => {
             let kind = Kind::from_name(&name).ok_or_else(|| anyhow!("unknown effect {name:?}"))?;
             let direction = match direction.as_str() {
@@ -315,6 +331,44 @@ fn actuation(c: ActCmd) -> Result<()> {
             let indices = key_indices(kb.as_ref(), &keys)?;
             write_actuation(kb.as_mut(), &indices, Actuation::Default)?;
             println!("{} key(s) back on the firmware default, verified by read-back", indices.len());
+        }
+    }
+    Ok(())
+}
+
+fn profile(c: ProfileCmd) -> Result<()> {
+    let dir = profiles_dir()?;
+    match c {
+        ProfileCmd::List => {
+            let all = Profile::list_in(&dir);
+            if all.is_empty() {
+                println!("no profiles yet (the GUI creates Default / Gaming / Typing on first run)");
+            }
+            for p in all {
+                let t = p.actuation_table()?;
+                let set = (0..aether_proto::KEY_SLOTS).filter(|&i| !t.record(i).is_empty()).count();
+                let fx = p.effect.as_ref().map_or(String::new(), |e| format!(", effect {}", e.kind));
+                println!("{:<16} lighting mode {}, {set} keys configured{fx}", p.name, p.lighting.mode);
+            }
+        }
+        ProfileCmd::Save { name } => {
+            let mut kb = connect()?;
+            let path = Profile::capture(kb.as_mut(), &name)?.save_in(&dir)?;
+            println!("saved {}", path.display());
+        }
+        ProfileCmd::Apply { name } => {
+            let p = Profile::find_in(&dir, &name).ok_or_else(|| anyhow!("no profile named {name:?}"))?;
+            let mut kb = connect()?;
+            let backup = p.apply(kb.as_mut())?;
+            eprintln!("backup: {}", backup.display());
+            println!("applied {:?} (actuation verified)", p.name);
+            if let Some(e) = &p.effect {
+                println!("note: its {} effect runs only in the GUI", e.kind);
+            }
+        }
+        ProfileCmd::Delete { name } => {
+            Profile::delete_in(&dir, &name)?;
+            println!("deleted {name:?}");
         }
     }
     Ok(())

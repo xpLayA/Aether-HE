@@ -6,14 +6,16 @@ mod backup;
 mod data;
 mod error;
 mod hfd;
+mod profile;
 mod transport;
 
-pub use backup::{Backup, backups_dir};
+pub use backup::{Backup, SavedLighting, backups_dir};
 pub use data::{
     ActuationLimits, Board, Capabilities, Key, Layout, LightMode, LightingInfo, Registry, data_dir,
 };
 pub use error::{Error, Result};
 pub use hfd::Hfd;
+pub use profile::{EffectSpec, PRESETS, Profile, profiles_dir};
 pub use transport::{HidTransport, Transport};
 
 use aether_proto::{ActTable, Actuation, DeviceInfo, KEY_SLOTS, Lighting};
