@@ -832,12 +832,13 @@ impl App {
     fn page_live(&mut self, ui: &mut egui::Ui) {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            theme::title(ui, "Live key depth", "");
-            ui.label("This view will show how far each key is pressed, in real time, with your actuation point marked.");
+            theme::title(ui, "Live key depth", "Not available on this keyboard");
+            ui.label("The F75 HE doesn't report key depth through any safe command.");
             ui.add_space(4.0);
             ui.label(RichText::new(
-                "It needs the keyboard's travel-test mode, which hasn't been verified on the F75 HE yet. \
-                 It will be enabled after a short, guarded test on your board.",
+                "Tested on 2026-10-21: the board acknowledges the SDK's travel-test mode (0x66) but streams no depth \
+                 data on any of its interfaces. The official driver's live depth view only works inside calibration \
+                 mode, which first erases the keyboard's stored calibration, so Aether deliberately doesn't use it.",
             ).color(MUTED));
         });
     }

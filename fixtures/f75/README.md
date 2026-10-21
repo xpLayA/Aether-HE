@@ -10,3 +10,11 @@ bring-up scripts in `docs/context/f75-bringup/`. Golden inputs for the Rust port
 - `act_before.json` — the 0x17 actuation table before the W round-trip (hex).
 
 Verified outcomes: see the `aula-f75-he` entry's `_note`s in `data/board_registry.json`.
+
+## Travel-test probe (2026-10-21): no live depth
+`docs/context/f75-bringup/f75_travel_probe.py` sent the SDK's `SET_SIMULATION_TEST_ON` (`AA 66 00…`),
+listened 9 s and 16 s, then always sent `SET_SIMULATION_TEST_OFF` (`AA 67 00…`). The board acked
+(`55 66 00…`) within 3 ms but produced **no `0xFB` reports** on the 0xFF68 interface or passively on its
+five other collections. The vendor UI never calls this mode; its live travel display uses calibration
+mode (0x64, preceded by a calibration wipe), which Aether never sends. Live depth is therefore not
+offered for this board. Not tried: `0x60 GET_MAGNETIC_AXIS_KEY_STATUS` (never referenced, format unknown).
