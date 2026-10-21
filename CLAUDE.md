@@ -67,8 +67,11 @@ calibration, live depth, 2.4 GHz dongle.
 
 ## Data on disk
 Backups `~/.local/share/aether-he/backups/<board>-<unix>.json` (taken before every change; the oldest
-is the pre-Aether state, used by "Restore original"). Profiles `~/.config/aether-he/profiles/*.json`
-(lighting + actuation table + optional effect). GUI state `~/.local/share/aether-he/app.ron`.
+is the pre-Aether state, used by "Restore original"). Custom profiles `~/.config/aether-he/profiles/*.json`
+(format 2: optional lighting + actuation table + optional effect); built-ins (Firmware default, Competitive,
+Gaming, Balanced, Typing) are generated from `PRESETS`, set actuation only and are never saved. The GUI
+always has an active profile: every edit is auto-saved into the active custom profile, and editing while a
+built-in is active forks "<name> (custom)". GUI state `~/.config/aether-he/gui.json`.
 
 ## Conventions
 Match the surrounding style; keep comments for the why. Commit per logical step and push to `origin`

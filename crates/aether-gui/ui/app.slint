@@ -57,7 +57,7 @@ component ProfileSwitcher inherits Rectangle {
         padding-right: 10px;
         spacing: 8px;
         Text {
-            text: UiState.active-profile == "" ? "No profile" : UiState.active-profile;
+            text: UiState.active-profile == "" ? "Unsaved setup" : UiState.active-profile;
             color: UiState.active-profile == "" ? Theme.muted : Theme.text;
             font-weight: 600;
             vertical-alignment: center;
@@ -91,7 +91,7 @@ component ProfileSwitcher inherits Rectangle {
             VerticalLayout {
                 padding: 6px;
                 spacing: 2px;
-                for name in UiState.profile-names: Rectangle {
+                for name[i] in UiState.profile-names: Rectangle {
                     height: 34px;
                     border-radius: 8px;
                     background: ita.has-hover ? Theme.surface-3 : transparent;
@@ -100,6 +100,7 @@ component ProfileSwitcher inherits Rectangle {
                         padding-right: 12px;
                         Text { text: name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
                         if name == UiState.active-profile: Text { text: "Active"; color: Theme.accent; font-size: 12px; vertical-alignment: center; }
+                        if name != UiState.active-profile && UiState.profile-builtin[i]: Text { text: "Built-in"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
                     ita := TouchArea { mouse-cursor: pointer; clicked => { Actions.switch-profile(name); } }
                 }

@@ -29,10 +29,11 @@ pub enum Cmd {
     StopEffect,
     Backup,
     Restore(PathBuf),
-    /// Capture the board as a profile (with `effect`) and save it.
-    SaveProfile { name: String, effect: Option<EffectSpec>, dir: PathBuf },
+    /// Capture the board (lighting, actuation, running effect) into the
+    /// custom profile `name`. `new` refuses an existing name; otherwise the
+    /// profile is created or updated (auto-save after every edit).
+    SaveProfile { name: String, dir: PathBuf, new: bool },
     ApplyProfile(Profile),
-    EnsureStarters(PathBuf),
 }
 
 pub enum Event {
@@ -42,7 +43,9 @@ pub enum Event {
     Actuation(ActTable),
     EffectRunning(Option<EffectSpec>),
     Previewing(bool),
-    ProfileApplied(String),
+    ProfileApplied(Profile),
+    /// A profile was saved; `new` when it didn't exist before.
+    ProfileSaved { name: String, new: bool },
     ProfilesChanged,
     BackupsChanged,
     Ok(String),
@@ -122,6 +125,7 @@ impl State {
 
     fn run(mut self) {
         self.connect();
+        self.emit(Event::Idle);
         loop {
             let wait = match &self.effect {
                 Some(r) => r.next.saturating_duration_since(Instant::now()),
@@ -306,36 +310,52 @@ impl State {
                 self.read_lighting();
                 self.read_actuation();
             }
-            Cmd::SaveProfile { name, effect, dir } => {
-                let r = self.paused(|kb| {
-                    let mut p = Profile::capture(kb, &name)?;
-                    p.effect = effect;
-                    p.save_in(&dir)
-                });
-                self.report(r, |_| Some(format!("Profile \"{name}\" saved")));
+            Cmd::SaveProfile { name, dir, new } => {
+                let r = self.capture_profile(&name).and_then(|p| if new { p.save_new_in(&dir) } else { p.save_in(&dir) });
+                let ok = r.is_ok();
+                self.report(r, |_| new.then(|| format!("Profile \"{name}\" saved")));
+                if ok {
+                    self.emit(Event::ProfileSaved { name, new });
+                }
                 self.emit(Event::ProfilesChanged);
             }
             Cmd::ApplyProfile(p) => {
-                let r = self.stop_effect().and_then(|_| p.apply(self.kb()?.as_mut()));
+                // A profile without lighting (the built-ins) leaves the lighting
+                // and any running effect as they are.
+                let r = if p.lighting.is_some() {
+                    self.stop_effect().and_then(|_| p.apply(self.kb()?.as_mut()))
+                } else {
+                    self.paused(|kb| p.apply(kb))
+                };
                 let ok = r.is_ok();
                 self.report(r, |_| Some(format!("Profile \"{}\" applied", p.name)));
                 self.emit(Event::BackupsChanged);
                 if ok {
-                    self.emit(Event::ProfileApplied(p.name.clone()));
                     if let Some(spec) = p.effect.clone() {
                         let r = self.start_effect(spec);
                         self.report(r, |_| None);
                     }
+                    self.emit(Event::ProfileApplied(p));
                 }
                 self.read_lighting();
                 self.read_actuation();
             }
-            Cmd::EnsureStarters(dir) => {
-                let r = self.kb().and_then(|kb| Profile::ensure_starters(kb.as_mut(), &dir));
-                self.report(r, |_| None);
-                self.emit(Event::ProfilesChanged);
-            }
         }
+    }
+
+    /// The board as a profile, without pausing a running effect: its
+    /// firmware lighting is the one saved when it started (likewise the
+    /// pre-preview lighting), and the effect itself is part of the profile.
+    fn capture_profile(&mut self, name: &str) -> R<Profile> {
+        let held = self.effect.as_ref().map(|r| r.saved).or(self.preview_base);
+        let effect = self.effect.as_ref().map(|r| r.spec.clone());
+        let kb = self.kb()?;
+        let lighting = match held {
+            Some(l) => l,
+            None => kb.lighting()?,
+        };
+        let table = kb.actuation_table()?;
+        Ok(Profile::new(name, &kb.board().slug, Some(lighting.into()), &table, effect))
     }
 
     fn start_effect(&mut self, spec: EffectSpec) -> R<()> {

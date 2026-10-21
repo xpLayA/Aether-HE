@@ -46,6 +46,7 @@ share="$prefix/share/aether-he"
 manifest="$share/install-manifest"
 # Backups and GUI settings live in the user data dir, whatever the prefix.
 user_dir="${XDG_DATA_HOME:-$HOME/.local/share}/aether-he"
+gui_state="${XDG_CONFIG_HOME:-$HOME/.config}/aether-he/gui.json"
 
 # ---- what to remove -------------------------------------------------------
 files=()
@@ -130,7 +131,7 @@ for f in "${files[@]}"; do echo "  $f"; done
 for r in "${rules[@]}"; do echo "  $r (sudo)"; done
 if ((purge)); then
     echo "  $user_dir/backups ($backups backup files)"
-    echo "  $user_dir/app.ron (GUI settings)"
+    echo "  $gui_state (GUI settings)"
 else
     echo "Keeping: $user_dir/backups ($backups backups) and GUI settings (use --purge to delete them)"
 fi
@@ -161,7 +162,7 @@ if ((purge)); then
     else
         rm -rf -- "$user_dir/backups"
     fi
-    rm -f -- "$user_dir/app.ron"
+    rm -f -- "$gui_state" "$user_dir/app.ron"   # app.ron: written by versions before the Slint GUI
 fi
 
 # Remove directories that are now empty (never anything with files left in it).

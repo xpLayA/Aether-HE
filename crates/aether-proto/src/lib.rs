@@ -360,6 +360,16 @@ pub enum Actuation {
     Default,
 }
 
+impl fmt::Display for Actuation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Actuation::Fixed { travel_mm } => write!(f, "{travel_mm:.2} mm"),
+            Actuation::RapidTrigger { travel_mm, press_mm, .. } => write!(f, "{travel_mm:.2} mm + rapid trigger {press_mm:.2}"),
+            Actuation::Default => write!(f, "Firmware default"),
+        }
+    }
+}
+
 /// The whole 1008-byte actuation table, kept as raw bytes so untouched keys
 /// are written back exactly as read.
 #[derive(Clone, PartialEq, Eq)]

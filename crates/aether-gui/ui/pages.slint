@@ -70,7 +70,9 @@ component ProfileTile inherits Rectangle {
             VerticalLayout {
                 padding: 6px;
                 spacing: 2px;
-                for item in [
+                for item in root.p.builtin ? [
+                    { id: "duplicate", label: "Make a custom copy" },
+                ] : [
                     { id: "update", label: "Update from current keyboard" },
                     { id: "effect", label: "Attach current effect settings" },
                     { id: "noeffect", label: "Remove effect" },
@@ -97,20 +99,55 @@ component ProfileTile inherits Rectangle {
     }
 }
 
+component ProfileGrid inherits Rectangle {
+    in property <[ProfileCard]> items;
+    property <int> cols: max(1, floor((self.width + 16px) / 300px));
+    property <length> tile-w: (self.width - (self.cols - 1) * 16px) / self.cols;
+    property <length> tile-h: 190px;
+    height: max(0px, ceil(root.items.length / self.cols) * (self.tile-h + 16px) - 16px);
+    for p[i] in root.items: ProfileTile {
+        p: p;
+        x: mod(i, root.cols) * (root.tile-w + 16px);
+        y: floor(i / root.cols) * (root.tile-h + 16px);
+        width: root.tile-w;
+        height: root.tile-h;
+    }
+}
+
+component SectionTitle inherits Text {
+    font-size: 15px;
+    font-weight: 600;
+    color: Theme.text;
+}
+
+// Where edits on this page go: the active custom profile, or a new one.
+export component EditingHint inherits HorizontalLayout {
+    spacing: 8px;
+    alignment: start;
+    if UiState.connection == 1: Chip {
+        text: UiState.active-builtin
+            ? "Changes here create a custom profile"
+                + (UiState.active-profile == "" ? "" : " from " + UiState.active-profile)
+            : "Changes save to " + UiState.active-profile;
+        tone: UiState.active-builtin ? Theme.muted : Theme.accent;
+    }
+}
+
 export component ProfilesPage inherits VerticalLayout {
     spacing: 16px;
-    PageTitle { title: "Profiles"; subtitle: "Complete setups: lighting, every key's actuation and an optional effect. Applying one backs up the keyboard first."; }
+    PageTitle {
+        title: "Profiles";
+        subtitle: "Built-ins set every key's actuation and keep your lighting. Custom profiles hold everything: lighting, every key's actuation and the effect. Any change you make on the other pages is saved into the active custom profile; editing while a built-in is active creates a custom copy.";
+    }
+    SectionTitle { text: "Built-in"; }
+    ProfileGrid { items: UiState.builtin-profiles; }
+    SectionTitle { text: "Custom"; }
     Card {
-        title: "New profile";
-        subtitle: "Save the keyboard as it is right now.";
+        title: "New custom profile";
+        subtitle: "Save the keyboard as it is right now, including a running effect.";
         HorizontalLayout {
             spacing: 12px;
             TextField { placeholder-text: "Profile name"; text <=> UiState.new-profile-name; min-width: 200px; horizontal-stretch: 1; accepted => { Actions.profile-save-new(); } }
-            HorizontalLayout {
-                spacing: 8px;
-                Toggle { y: (parent.height - self.height) / 2; checked <=> UiState.include-effect; }
-                Text { text: "Include effect (" + UiState.fx-name + ")"; color: Theme.muted; vertical-alignment: center; }
-            }
             Btn {
                 text: "Save current setup";
                 kind: "primary";
@@ -119,24 +156,18 @@ export component ProfilesPage inherits VerticalLayout {
             }
         }
     }
-    grid := Rectangle {
-        property <int> cols: max(1, floor((self.width + 16px) / 300px));
-        property <length> tile-w: (self.width - (self.cols - 1) * 16px) / self.cols;
-        property <length> tile-h: 190px;
-        height: max(0px, ceil(UiState.profiles.length / self.cols) * (self.tile-h + 16px) - 16px);
-        for p[i] in UiState.profiles: ProfileTile {
-            p: p;
-            x: mod(i, grid.cols) * (grid.tile-w + 16px);
-            y: floor(i / grid.cols) * (grid.tile-h + 16px);
-            width: grid.tile-w;
-            height: grid.tile-h;
-        }
+    if UiState.profiles.length == 0 && UiState.connection == 1: Text {
+        text: "No custom profiles yet. Change anything on the Lighting, Effects or Actuation page and one is created for you.";
+        color: Theme.muted;
+        wrap: word-wrap;
     }
+    ProfileGrid { items: UiState.profiles; }
 }
 
 export component LightingPage inherits VerticalLayout {
     spacing: 16px;
     PageTitle { title: "Lighting"; subtitle: "Firmware effects are stored on the keyboard and run without this app."; }
+    EditingHint { }
     KeyboardCard { }
     Card {
         HorizontalLayout {
@@ -215,6 +246,7 @@ export component LightingPage inherits VerticalLayout {
 export component EffectsPage inherits VerticalLayout {
     spacing: 16px;
     PageTitle { title: "Effects"; subtitle: "Animated by this app and streamed to every key at 28 fps. They stop when the app closes."; }
+    EditingHint { }
     KeyboardCard { }
     Card {
         title: "Host effect";
@@ -354,6 +386,7 @@ component CustomCard inherits Card {
 export component ActuationPage inherits VerticalLayout {
     spacing: 16px;
     PageTitle { title: "Actuation"; subtitle: "How deep a key travels before it fires, and rapid trigger. Values on the keys are in mm; blank keys use the firmware default."; }
+    EditingHint { }
     KeyboardCard { }
     if root.width >= 1050px: HorizontalLayout {
         spacing: 16px;

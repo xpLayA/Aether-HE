@@ -49,6 +49,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.global::<UiState>().set_start_scroll(px);
     }
 
+    if let Ok(d) = profiles_dir() {
+        Profile::migrate_in(&d);
+    }
     let state = Rc::new(RefCell::new(State::new(saved)));
     state.borrow_mut().reload_profiles();
     state.borrow_mut().reload_backups();
@@ -151,7 +154,8 @@ struct State {
     toasts: Vec<(String, bool, Instant)>,
     confirm: Option<Confirm>,
     busy: bool,
-    starters_done: bool,
+    /// Work out the active profile once the first actuation table arrives.
+    resolve_active: bool,
     /// Layout offset so the drawn keyboard starts at (0, 0).
     origin: (f32, f32),
     live_preview: bool,
@@ -247,7 +251,7 @@ impl State {
             toasts: Vec::new(),
             confirm: None,
             busy: true,
-            starters_done: false,
+            resolve_active: false,
             origin: (0.0, 0.0),
             live_preview: saved.live_preview,
             previewing: false,
@@ -288,8 +292,61 @@ impl State {
         }
     }
 
+    /// Built-ins for the connected board, then its custom profiles.
     fn reload_profiles(&mut self) {
-        self.profiles = profiles_dir().map(|d| Profile::list_in(&d)).unwrap_or_default();
+        let Some((board, layout)) = self.up() else {
+            self.profiles.clear();
+            return;
+        };
+        let mut v = Profile::builtins(&board.slug, layout);
+        v.extend(profiles_dir().map(|d| Profile::list_in(&d, &board.slug)).unwrap_or_default());
+        self.profiles = v;
+    }
+
+    fn profile(&self, name: &str) -> Option<&Profile> {
+        self.profiles.iter().find(|p| p.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Keep the saved active profile if it still exists, else name the
+    /// built-in the keyboard matches (none: "Unsaved setup" until the next
+    /// edit creates a custom profile). Restarts the active profile's effect.
+    fn resolve_active(&mut self) {
+        let Some(t) = self.table.clone().filter(|_| self.resolve_active) else { return };
+        self.resolve_active = false;
+        let matches = |p: &Profile| p.actuation_table().ok().as_ref() == Some(&t);
+        // A built-in is only active while the keys still match it.
+        match self.active_profile.as_deref().and_then(|a| self.profile(a)).filter(|p| !p.builtin || matches(p)).cloned() {
+            Some(p) => {
+                self.active_profile = Some(p.name.clone());
+                if let Some(e) = p.effect.filter(|_| self.running.is_none()) {
+                    self.fx = e.clone();
+                    self.send(Cmd::StartEffect(e));
+                }
+            }
+            None => {
+                self.active_profile = self.profiles.iter().find(|p| p.builtin && matches(p)).map(|p| p.name.clone());
+            }
+        }
+    }
+
+    /// Send a change to the keyboard, then save the result into the active
+    /// custom profile. With a built-in (or nothing) active, the change goes
+    /// to a new custom profile named after `fork` (default "<active> (custom)").
+    fn send_edit(&mut self, cmd: Cmd, fork: Option<String>) {
+        self.send(cmd);
+        let Ok(dir) = profiles_dir() else { return };
+        let active = self.active_profile.clone().filter(|a| self.profile(a).is_some_and(|p| !p.builtin));
+        let name = match (fork, active) {
+            (None, Some(a)) => a,
+            (fork, _) => {
+                let base = fork.unwrap_or_else(|| self.active_profile.as_ref().map_or("Custom".into(), |a| format!("{a} (custom)")));
+                let name = Profile::unique_name_in(&dir, &base);
+                self.toast(format!("Saved to a new profile, \"{name}\""), false);
+                name
+            }
+        };
+        self.active_profile = Some(name.clone());
+        self.send(Cmd::SaveProfile { name, dir, new: false });
     }
 
     fn reload_backups(&mut self) {
@@ -312,12 +369,8 @@ impl State {
                         layout.keys.iter().map(|k| (k.index, k.x + k.width / 2.0, k.y + k.height / 2.0)).collect();
                     self.sim = Some(Sim::new(&centres));
                     self.conn = Conn::Up { board, layout, info };
-                    if !self.starters_done {
-                        self.starters_done = true;
-                        if let Ok(d) = profiles_dir() {
-                            self.send(Cmd::EnsureStarters(d));
-                        }
-                    }
+                    self.reload_profiles();
+                    self.resolve_active = true;
                 }
                 Event::Disconnected(why) => {
                     self.conn = Conn::Down(why);
@@ -328,10 +381,23 @@ impl State {
                     self.light_form = Some(l);
                     self.color_touched = false;
                 }
-                Event::Actuation(t) => self.table = Some(t),
+                Event::Actuation(t) => {
+                    self.table = Some(t);
+                    self.resolve_active();
+                }
                 Event::EffectRunning(spec) => self.running = spec,
                 Event::Previewing(on) => self.previewing = on,
-                Event::ProfileApplied(name) => self.active_profile = Some(name),
+                Event::ProfileApplied(p) => {
+                    if let Some(e) = &p.effect {
+                        self.fx = e.clone();
+                    }
+                    self.active_profile = Some(p.name);
+                }
+                Event::ProfileSaved { name, new } => {
+                    if new {
+                        self.active_profile = Some(name);
+                    }
+                }
                 Event::ProfilesChanged => self.reload_profiles(),
                 Event::BackupsChanged => self.reload_backups(),
                 Event::Ok(m) => self.toast(m, false),
@@ -404,9 +470,12 @@ impl State {
         g.set_busy(self.busy);
         g.set_effect_running(self.running.as_ref().map(|s| cap(&s.kind)).unwrap_or_default().into());
         g.set_active_profile(self.active_profile.clone().unwrap_or_default().into());
+        let active = self.active_profile.as_deref().and_then(|a| self.profile(a));
+        g.set_active_builtin(active.is_none_or(|p| p.builtin));
         let idx = self.active_profile.as_ref().and_then(|a| self.profiles.iter().position(|p| &p.name == a));
         g.set_active_profile_index(idx.map_or(-1, |i| i as i32));
         g.set_profile_names(model(self.profiles.iter().map(|p| SharedString::from(p.name.as_str())).collect()));
+        g.set_profile_builtin(model(self.profiles.iter().map(|p| p.builtin).collect()));
     }
 
     fn key_info(&self, idx: usize) -> String {
@@ -483,9 +552,10 @@ impl State {
     fn push_profiles(&self, ui: &AppWindow) {
         let g = ui.global::<UiState>();
         let modes = self.up().map(|(b, _)| b.lighting.clone());
-        let cards: Vec<ProfileCard> = self
+        let cards = |builtin: bool| -> Vec<ProfileCard> { self
             .profiles
             .iter()
+            .filter(|p| p.builtin == builtin)
             .map(|p| {
                 let t = p.actuation_table().unwrap_or_default();
                 let set: Vec<_> = (0..aether_proto::KEY_SLOTS).map(|i| t.record(i)).filter(|r| !r.is_empty()).collect();
@@ -498,18 +568,30 @@ impl State {
                     let range = if lo == hi { format!("{:.2} mm", raw_to_mm(lo)) } else { format!("{:.2}–{:.2} mm", raw_to_mm(lo), raw_to_mm(hi)) };
                     format!("{} keys at {range}{}", set.len(), if rt > 0 { format!(" · {rt} with rapid trigger") } else { String::new() })
                 };
-                let mode = modes.as_ref().and_then(|m| m.mode(p.lighting.mode)).map_or("Custom".into(), |m| m.name.clone());
+                let lighting = match p.lighting {
+                    None => "Lighting: keeps yours".to_string(),
+                    Some(l) => {
+                        let mode = modes.as_ref().and_then(|m| m.mode(l.mode)).map_or("Custom".into(), |m| m.name.clone());
+                        format!("Lighting: {mode}")
+                    }
+                };
+                let effect = match (&p.effect, p.lighting) {
+                    (Some(e), _) => format!("Effect: {}", cap(&e.kind)),
+                    (None, None) => "Effect: keeps yours".into(),
+                    (None, Some(_)) => "No host effect".into(),
+                };
                 ProfileCard {
                     name: p.name.clone().into(),
                     actuation: act.into(),
-                    lighting: format!("Lighting: {mode}").into(),
-                    effect: p.effect.as_ref().map_or("No host effect".into(), |e| format!("Effect: {}", cap(&e.kind))).into(),
+                    lighting: lighting.into(),
+                    effect: effect.into(),
                     active: self.active_profile.as_deref() == Some(p.name.as_str()),
+                    builtin: p.builtin,
                 }
             })
-            .collect();
-        g.set_profiles(model(cards));
-        g.set_fx_name(cap(&self.fx.kind).into());
+            .collect() };
+        g.set_builtin_profiles(model(cards(true)));
+        g.set_profiles(model(cards(false)));
     }
 
     fn push_lighting(&self, ui: &AppWindow) {
@@ -550,12 +632,7 @@ impl State {
                 .iter()
                 .map(|(name, s)| Preset {
                     name: (*name).into(),
-                    detail: match s {
-                        Actuation::Fixed { travel_mm } => format!("{travel_mm:.2} mm"),
-                        Actuation::RapidTrigger { travel_mm, press_mm, .. } => format!("{travel_mm:.2} mm + rapid trigger {press_mm:.2}"),
-                        Actuation::Default => "Firmware default".into(),
-                    }
-                    .into(),
+                    detail: s.to_string().into(),
                 })
                 .collect(),
         ));
@@ -689,8 +766,7 @@ impl State {
             self.toast("Select keys first, or choose All keys", true);
             return;
         }
-        self.active_profile = None;
-        self.send(Cmd::SetActuation { keys, setting });
+        self.send_edit(Cmd::SetActuation { keys, setting }, None);
     }
 
     fn quick_select(&mut self, group: &str) {
@@ -711,15 +787,17 @@ impl State {
 
     fn profile_action(&mut self, name: &str, action: &str, ui: &AppWindow) {
         let Ok(dir) = profiles_dir() else { return };
-        let found = self.profiles.iter().find(|p| p.name == name).cloned();
+        let found = self.profile(name).cloned();
         match action {
-            "update" => {
-                let effect = found.and_then(|p| p.effect);
-                self.send(Cmd::SaveProfile { name: name.into(), effect, dir });
-            }
+            "update" => self.send(Cmd::SaveProfile { name: name.into(), dir, new: false }),
             "effect" | "noeffect" => {
                 self.sync_fx_from_ui(ui);
-                if let Some(mut p) = found {
+                // The active profile mirrors the keyboard: change what's running,
+                // and the auto-save records it.
+                if self.active_profile.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(name)) {
+                    let cmd = if action == "effect" { Cmd::StartEffect(self.fx.clone()) } else { Cmd::StopEffect };
+                    self.send_edit(cmd, None);
+                } else if let Some(mut p) = found {
                     p.effect = (action == "effect").then(|| self.fx.clone());
                     match p.save_in(&dir) {
                         Ok(_) => self.toast(format!("Updated the effect of \"{name}\""), false),
@@ -735,13 +813,11 @@ impl State {
             }
             "duplicate" => {
                 if let Some(mut p) = found {
-                    let mut n = 2;
-                    while self.profiles.iter().any(|q| q.name.eq_ignore_ascii_case(&format!("{name} {n}"))) {
-                        n += 1;
-                    }
-                    p.name = format!("{name} {n}");
-                    if let Err(e) = p.save_in(&dir) {
-                        self.toast(e.to_string(), true);
+                    p.name = Profile::unique_name_in(&dir, &if p.builtin { format!("{name} (custom)") } else { format!("{name} copy") });
+                    p.builtin = false;
+                    match p.save_new_in(&dir) {
+                        Ok(_) => self.toast(format!("Created \"{}\"", p.name), false),
+                        Err(e) => self.toast(e.to_string(), true),
                     }
                     self.reload_profiles();
                 }
@@ -788,7 +864,7 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         s.send(Cmd::Connect);
     });
     on!(on_switch_profile, |s, ui, name: SharedString| {
-        if let Some(p) = s.profiles.iter().find(|p| p.name == name.as_str()).cloned() {
+        if let Some(p) = s.profile(&name).cloned() {
             s.send(Cmd::ApplyProfile(p));
         }
     });
@@ -862,7 +938,7 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     });
 
     on!(on_profile_apply, |s, ui, name: SharedString| {
-        if let Some(p) = s.profiles.iter().find(|p| p.name == name.as_str()).cloned() {
+        if let Some(p) = s.profile(&name).cloned() {
             s.send(Cmd::ApplyProfile(p));
         }
     });
@@ -874,10 +950,7 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         let name = g.get_new_profile_name().trim().to_string();
         if !name.is_empty() {
             if let Ok(dir) = profiles_dir() {
-                s.sync_fx_from_ui(&ui);
-                let effect = g.get_include_effect().then(|| s.fx.clone());
-                s.send(Cmd::SaveProfile { name: name.clone(), effect, dir });
-                s.active_profile = Some(name);
+                s.send(Cmd::SaveProfile { name, dir, new: true });
                 g.set_new_profile_name("".into());
             }
         }
@@ -889,7 +962,7 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         if !new.is_empty() && new != old {
             match profiles_dir().and_then(|d| Profile::rename_in(&d, &old, &new)) {
                 Ok(_) => {
-                    if s.active_profile.as_deref() == Some(old.as_str()) {
+                    if s.active_profile.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(&old)) {
                         s.active_profile = Some(new);
                     }
                 }
@@ -924,8 +997,7 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         s.light_from_ui(&ui);
         s.preview_pending = false;
         if let Some(l) = s.light_form {
-            s.active_profile = None;
-            s.send(Cmd::SetLighting(l));
+            s.send_edit(Cmd::SetLighting(l), None);
         }
     });
     on!(on_light_revert, |s, ui| {
@@ -973,10 +1045,10 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     on!(on_fx_start, |s, ui| {
         s.sync_fx_from_ui(&ui);
         let spec = s.fx.clone();
-        s.send(Cmd::StartEffect(spec));
+        s.send_edit(Cmd::StartEffect(spec), None);
     });
     on!(on_fx_stop, |s, ui| {
-        s.send(Cmd::StopEffect);
+        s.send_edit(Cmd::StopEffect, None);
     });
     on!(on_fx_defaults, |s, ui| {
         s.fx = default_fx();
@@ -1035,14 +1107,15 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
                     Ok(()) => s.toast(format!("Deleted \"{n}\""), false),
                     Err(e) => s.toast(e.to_string(), true),
                 }
-                if s.active_profile.as_deref() == Some(n.as_str()) {
-                    s.active_profile = None;
-                }
                 s.reload_profiles();
+                if s.active_profile.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(&n)) {
+                    s.active_profile = None;
+                    s.resolve_active = true;
+                    s.resolve_active();
+                }
             }
             Some(Confirm::Restore(p)) => {
-                s.active_profile = None;
-                s.send(Cmd::Restore(p));
+                s.send_edit(Cmd::Restore(p), Some("Restored backup".into()));
             }
             Some(Confirm::ResetAll) => s.write_actuation(true, Actuation::Default),
             None => {}

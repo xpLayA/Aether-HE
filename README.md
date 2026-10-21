@@ -25,8 +25,9 @@ with an automatic backup before every change.
 
 ## Features
 
-- **Profiles:** save your whole setup (lighting, every key's actuation, optionally an effect) and switch
-  between them in one click. Default, Gaming and Typing are created for you.
+- **Profiles:** built-in Firmware default, Competitive, Gaming, Balanced and Typing set every key's
+  actuation; custom profiles hold your whole setup (lighting, every key's actuation, the effect), and
+  every change you make is saved into the active one automatically.
 - **Firmware lighting:** all 19 built-in effects, with brightness, speed and an HSV colour picker.
   - **Live preview:** every change shows on the keyboard immediately, and nothing is saved until you
     press *Apply*.
@@ -109,10 +110,14 @@ aether-gui
 
 **Profiles**
 - *Profiles* → **Apply** on a tile, or use the **Profile** switcher at the top right on any page.
-- To save your own: type a name under *New profile* and press **Save current setup**. Tick *Include
-  effect* to start your current host effect whenever the profile is applied.
+- Built-ins only set actuation and keep your lighting. Change anything (lighting, effect, actuation)
+  while a built-in is active and a custom copy, e.g. *Gaming (custom)*, is created and becomes active.
+- While a custom profile is active, every change is saved into it; the chip under each page title says
+  where changes go.
+- To save the current setup under a new name: type it under *New custom profile* and press **Save
+  current setup** (a running effect is included).
 - **More** on a tile: update it from the keyboard, attach or remove an effect, rename, duplicate,
-  delete.
+  delete. On a built-in: make a custom copy.
 
 **Actuation**
 - Select keys on the keyboard: click, Shift+click, drag a box, or use *All / WASD / Letters / …*.
@@ -145,7 +150,7 @@ aether actuation get [--keys W,A,S,D]
 aether actuation set --keys W,A,S,D --travel 0.8 --rt 0.15
 aether actuation set --keys all --travel 1.2
 aether actuation reset [--keys all]          # back to firmware default
-aether profile list | save NAME | apply NAME | delete NAME
+aether profile list | save NAME | update NAME | apply NAME | duplicate NAME NEW | rename NAME NEW | delete NAME
 aether effect rain --colors 00ff80,0080ff --seconds 30   # Ctrl+C stops, lighting restored
 aether backup [--out FILE]
 aether backups                                # oldest first

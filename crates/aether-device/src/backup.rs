@@ -55,7 +55,7 @@ pub(crate) fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-fn unhex(s: &str) -> Result<Vec<u8>> {
+pub(crate) fn unhex(s: &str) -> Result<Vec<u8>> {
     if s.len() % 2 != 0 {
         return Err(Error::Data("odd-length hex".into()));
     }
@@ -132,12 +132,7 @@ impl Backup {
         }
         let table = self.actuation_table()?;
         kb.set_lighting(&self.lighting.into())?;
-        kb.write_actuation_table(&table)?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        if kb.actuation_table()? != table {
-            return Err(Error::BadReply("actuation read-back differs from the backup".into()));
-        }
-        Ok(())
+        write_verified(kb, &table)
     }
 
     /// The newest backup for `board` in [`backups_dir`].
@@ -155,6 +150,16 @@ impl Backup {
     pub fn list() -> Result<Vec<(u64, PathBuf)>> {
         Ok(list_in(&backups_dir()?, ""))
     }
+}
+
+/// Write a whole actuation table and check the board kept it.
+pub(crate) fn write_verified(kb: &mut dyn Keyboard, table: &ActTable) -> Result<()> {
+    kb.write_actuation_table(table)?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    if kb.actuation_table()? != *table {
+        return Err(Error::BadReply("actuation read-back differs from what was written".into()));
+    }
+    Ok(())
 }
 
 /// `<board>-<unix>.json` files in `dir` for `board` ("" = any), oldest first.

@@ -25,6 +25,7 @@ export struct ProfileCard {
     lighting: string,
     effect: string,
     active: bool,
+    builtin: bool,
 }
 
 export struct Preset {
@@ -57,6 +58,10 @@ export global UiState {
     in property <string> active-profile;
     in property <int> active-profile-index: -1;
     in property <[string]> profile-names;
+    // parallel to profile-names
+    in property <[bool]> profile-builtin;
+    // the active profile is a built-in (or none): the next edit creates a custom one
+    in property <bool> active-builtin: true;
 
     // keyboard view
     in property <[KeyCap]> keys;
@@ -68,10 +73,9 @@ export global UiState {
     in property <bool> show-legend;
 
     // profiles
+    in property <[ProfileCard]> builtin-profiles;
     in property <[ProfileCard]> profiles;
     in-out property <string> new-profile-name;
-    in-out property <bool> include-effect;
-    in property <string> fx-name;
     in-out property <string> renaming;
     in-out property <string> rename-text;
 

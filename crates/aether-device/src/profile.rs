@@ -1,16 +1,18 @@
 //! Named, switchable setups: lighting + every key's actuation + an optional
-//! host effect. Stored as `~/.config/aether-he/profiles/<name>.json`.
-//! Applying one backs the board up first and verifies the actuation read-back.
+//! host effect. Custom profiles are stored as
+//! `~/.config/aether-he/profiles/<name>.json`; the built-ins come from
+//! [`PRESETS`] and only set actuation. Applying one backs the board up first
+//! and verifies the actuation read-back.
 
 use std::path::{Path, PathBuf};
 
 use aether_proto::{ActTable, Actuation};
 use serde::{Deserialize, Serialize};
 
-use crate::backup::{SavedLighting, hex};
-use crate::{Backup, Error, Keyboard, Result};
+use crate::backup::{SavedLighting, hex, unhex, write_verified};
+use crate::{Backup, Error, Keyboard, Layout, Result};
 
-/// One-click actuation settings, used by the GUI buttons and starter profiles.
+/// One-click actuation settings, used by the GUI buttons and the built-in profiles.
 pub const PRESETS: [(&str, Actuation); 5] = [
     ("Competitive", Actuation::RapidTrigger { travel_mm: 0.40, press_mm: 0.10, release_mm: 0.10 }),
     ("Gaming", Actuation::RapidTrigger { travel_mm: 0.80, press_mm: 0.15, release_mm: 0.15 }),
@@ -18,6 +20,10 @@ pub const PRESETS: [(&str, Actuation); 5] = [
     ("Typing", Actuation::Fixed { travel_mm: 2.00 }),
     ("Default", Actuation::Default),
 ];
+
+/// Built-in profile names, in display order, with the preset each puts on every key.
+pub const BUILTINS: [(&str, usize); 5] =
+    [("Firmware default", 4), ("Competitive", 0), ("Gaming", 1), ("Balanced", 2), ("Typing", 3)];
 
 /// A host effect to start with the profile (runs while the GUI is open).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,14 +39,19 @@ pub struct EffectSpec {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
+    /// 1: lighting always present. 2: lighting optional.
     pub format: u32,
     pub name: String,
     pub board: String,
-    pub lighting: SavedLighting,
+    /// `None` leaves the keyboard's lighting (and any running effect) alone.
+    pub lighting: Option<SavedLighting>,
     /// The whole actuation table, hex.
     pub actuation: String,
     #[serde(default)]
     pub effect: Option<EffectSpec>,
+    /// Generated from [`BUILTINS`], never saved, can't be edited.
+    #[serde(skip)]
+    pub builtin: bool,
 }
 
 /// `~/.config/aether-he/profiles`
@@ -62,38 +73,62 @@ fn file_stem(name: &str) -> String {
     if s.is_empty() { "profile".into() } else { s }
 }
 
+/// Custom profiles can't take a built-in's name, so a name always means one profile.
+pub fn is_builtin_name(name: &str) -> bool {
+    BUILTINS.iter().any(|(b, _)| b.eq_ignore_ascii_case(name.trim()))
+}
+
 impl Profile {
+    pub fn new(name: &str, board: &str, lighting: Option<SavedLighting>, table: &ActTable, effect: Option<EffectSpec>) -> Profile {
+        Profile {
+            format: 2,
+            name: name.trim().to_string(),
+            board: board.into(),
+            lighting,
+            actuation: hex(&table.0),
+            effect,
+            builtin: false,
+        }
+    }
+
     /// The board's current lighting and actuation under `name`.
     pub fn capture(kb: &mut dyn Keyboard, name: &str) -> Result<Profile> {
         let b = Backup::capture(kb)?;
-        Ok(Profile { format: 1, name: name.trim().to_string(), board: b.board, lighting: b.lighting, actuation: b.actuation, effect: None })
+        Ok(Profile { lighting: Some(b.lighting), actuation: b.actuation, ..Profile::new(name, &b.board, None, &ActTable::default(), None) })
     }
 
-    /// A profile with `setting` on every key and `lighting`.
-    pub fn from_preset(name: &str, kb: &dyn Keyboard, lighting: SavedLighting, setting: Actuation) -> Profile {
+    /// `setting` on every key of `layout`, lighting untouched.
+    pub fn from_preset(name: &str, board: &str, layout: &Layout, setting: Actuation) -> Profile {
         let mut t = ActTable::default();
-        let keys: Vec<usize> = kb.layout().keys.iter().map(|k| k.index).collect();
+        let keys: Vec<usize> = layout.keys.iter().map(|k| k.index).collect();
         t.apply(&keys, setting);
-        Profile { format: 1, name: name.into(), board: kb.board().slug.clone(), lighting, actuation: hex(&t.0), effect: None }
+        Profile::new(name, board, None, &t, None)
+    }
+
+    /// The built-in profiles for a board, in display order.
+    pub fn builtins(board: &str, layout: &Layout) -> Vec<Profile> {
+        BUILTINS
+            .iter()
+            .map(|(name, preset)| Profile { builtin: true, ..Profile::from_preset(name, board, layout, PRESETS[*preset].1) })
+            .collect()
     }
 
     pub fn actuation_table(&self) -> Result<ActTable> {
-        self.as_backup().actuation_table()
+        Ok(ActTable::from_slice(&unhex(&self.actuation)?)?)
     }
 
-    fn as_backup(&self) -> Backup {
-        Backup { format: 1, created_unix: 0, board: self.board.clone(), lighting: self.lighting, actuation: self.actuation.clone() }
-    }
-
-    /// Back up the board, then write this profile's lighting and actuation
-    /// (verified). Starting the effect is up to the caller.
+    /// Back up the board, then write this profile's lighting (if it has any)
+    /// and actuation (verified). Starting the effect is up to the caller.
     pub fn apply(&self, kb: &mut dyn Keyboard) -> Result<PathBuf> {
         if self.board != kb.board().slug {
             return Err(Error::Invalid(format!("profile {:?} is for {}, connected board is {}", self.name, self.board, kb.board().slug)));
         }
-        self.actuation_table()?;
+        let table = self.actuation_table()?;
         let backup = Backup::snapshot(kb)?;
-        self.as_backup().restore(kb)?;
+        if let Some(l) = self.lighting {
+            kb.set_lighting(&l.into())?;
+        }
+        write_verified(kb, &table)?;
         Ok(backup)
     }
 
@@ -101,15 +136,63 @@ impl Profile {
         dir.join(format!("{}.json", file_stem(name)))
     }
 
+    /// The file actually holding profile `name`: usually [`Profile::path_in`],
+    /// but files written by older versions may be named differently ("Default.json").
+    fn file_of(dir: &Path, name: &str) -> Option<PathBuf> {
+        let usual = Profile::path_in(dir, name);
+        if Profile::load(&usual).is_ok_and(|p| p.name.eq_ignore_ascii_case(name.trim())) {
+            return Some(usual);
+        }
+        std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .find(|p| Profile::load(p).is_ok_and(|q| q.name.eq_ignore_ascii_case(name.trim())))
+    }
+
+    /// Save, replacing the file of a profile with this name. Refuses built-in
+    /// names, and refuses to replace a *different* profile whose name maps to
+    /// the same file ("Gaming!" vs "Gaming").
     pub fn save_in(&self, dir: &Path) -> Result<PathBuf> {
+        self.check_name()?;
+        if let Some(path) = Profile::file_of(dir, &self.name) {
+            return self.write(dir, &path);
+        }
+        let path = Profile::path_in(dir, &self.name);
+        if let Ok(other) = Profile::load(&path) {
+            if !other.name.eq_ignore_ascii_case(&self.name) {
+                return Err(Error::Invalid(format!("{:?} would replace the profile {:?}; pick another name", self.name, other.name)));
+            }
+        }
+        self.write(dir, &path)
+    }
+
+    /// Save as a new profile; refuses if one with this name (or file) exists.
+    pub fn save_new_in(&self, dir: &Path) -> Result<PathBuf> {
+        self.check_name()?;
+        let path = Profile::path_in(dir, &self.name);
+        if path.exists() {
+            return Err(Error::Invalid(format!("a profile named {:?} already exists", self.name)));
+        }
+        self.write(dir, &path)
+    }
+
+    fn check_name(&self) -> Result<()> {
         if self.name.trim().is_empty() {
             return Err(Error::Invalid("profile name is empty".into()));
         }
+        if is_builtin_name(&self.name) {
+            return Err(Error::Invalid(format!("{:?} is a built-in profile; pick another name", self.name)));
+        }
+        Ok(())
+    }
+
+    fn write(&self, dir: &Path, path: &Path) -> Result<PathBuf> {
         std::fs::create_dir_all(dir)?;
-        let path = Profile::path_in(dir, &self.name);
-        let text = serde_json::to_string_pretty(self).map_err(|e| Error::Data(e.to_string()))?;
-        std::fs::write(&path, text + "\n")?;
-        Ok(path)
+        let p = Profile { format: 2, ..self.clone() };
+        let text = serde_json::to_string_pretty(&p).map_err(|e| Error::Data(e.to_string()))?;
+        std::fs::write(path, text + "\n")?;
+        Ok(path.to_path_buf())
     }
 
     pub fn load(path: &Path) -> Result<Profile> {
@@ -119,50 +202,67 @@ impl Profile {
         Ok(p)
     }
 
-    /// All readable profiles in `dir`, by name. Unreadable files are skipped.
-    pub fn list_in(dir: &Path) -> Vec<Profile> {
+    /// All readable custom profiles in `dir` for `board` ("" = any), by name.
+    /// Unreadable files are skipped.
+    pub fn list_in(dir: &Path, board: &str) -> Vec<Profile> {
         let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
         let mut v: Vec<Profile> = rd
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.extension().is_some_and(|x| x == "json"))
             .filter_map(|p| Profile::load(&p).map_err(|e| log::warn!("skipping profile: {e}")).ok())
+            .filter(|p| board.is_empty() || p.board == board)
             .collect();
         v.sort_by_key(|p| p.name.to_lowercase());
         v
     }
 
     pub fn find_in(dir: &Path, name: &str) -> Option<Profile> {
-        Profile::list_in(dir).into_iter().find(|p| p.name.eq_ignore_ascii_case(name.trim()))
+        Profile::list_in(dir, "").into_iter().find(|p| p.name.eq_ignore_ascii_case(name.trim()))
     }
 
     pub fn delete_in(dir: &Path, name: &str) -> Result<()> {
-        let p = Profile::path_in(dir, name);
-        if !p.is_file() {
-            return Err(Error::Invalid(format!("no profile named {name:?}")));
-        }
-        Ok(std::fs::remove_file(p)?)
+        let path = Profile::file_of(dir, name).ok_or_else(|| Error::Invalid(format!("no profile named {name:?}")))?;
+        Ok(std::fs::remove_file(path)?)
     }
 
     pub fn rename_in(dir: &Path, old: &str, new: &str) -> Result<PathBuf> {
         let mut p = Profile::find_in(dir, old).ok_or_else(|| Error::Invalid(format!("no profile named {old:?}")))?;
-        if file_stem(old) != file_stem(new) && Profile::path_in(dir, new).exists() {
-            return Err(Error::Invalid(format!("a profile named {new:?} already exists")));
-        }
-        Profile::delete_in(dir, old)?;
+        let old_path = Profile::file_of(dir, &p.name).unwrap_or_else(|| Profile::path_in(dir, &p.name));
+        let same_file = old_path == Profile::path_in(dir, new);
         p.name = new.trim().to_string();
-        p.save_in(dir)
+        let path = if same_file { p.save_in(dir)? } else { p.save_new_in(dir)? };
+        if path != old_path {
+            std::fs::remove_file(old_path)?;
+        }
+        Ok(path)
     }
 
-    /// First run: Default / Gaming / Typing, all with the board's current lighting.
-    pub fn ensure_starters(kb: &mut dyn Keyboard, dir: &Path) -> Result<()> {
-        if !Profile::list_in(dir).is_empty() {
-            return Ok(());
+    /// `base`, or `base 2`, `base 3`… : the first name free in `dir` and not a built-in.
+    pub fn unique_name_in(dir: &Path, base: &str) -> String {
+        let base = base.trim();
+        let free = |n: &str| !is_builtin_name(n) && !Profile::path_in(dir, n).exists();
+        if free(base) {
+            return base.to_string();
         }
-        let lighting: SavedLighting = kb.lighting()?.into();
-        for (name, setting) in PRESETS.iter().filter(|(n, _)| matches!(*n, "Default" | "Gaming" | "Typing")) {
-            Profile::from_preset(name, kb, lighting, *setting).save_in(dir)?;
+        (2..).map(|i| format!("{base} {i}")).find(|n| free(n)).unwrap_or_default()
+    }
+
+    /// Older versions created custom "Gaming" / "Typing" starters, which now
+    /// clash with the built-ins: rename them to "<name> (old)". Never deletes.
+    pub fn migrate_in(dir: &Path) {
+        for p in Profile::list_in(dir, "").into_iter().filter(|p| is_builtin_name(&p.name)) {
+            let mut q = p.clone();
+            q.name = Profile::unique_name_in(dir, &format!("{} (old)", p.name));
+            let old_path = Profile::file_of(dir, &p.name);
+            match q.save_new_in(dir) {
+                Ok(_) => {
+                    if let Some(old) = old_path {
+                        let _ = std::fs::remove_file(old);
+                    }
+                }
+                Err(e) => log::warn!("migrating profile {:?}: {e}", p.name),
+            }
         }
-        Ok(())
     }
 }
 
@@ -172,7 +272,9 @@ mod tests {
     use crate::hfd::tests::{FakeBoard, f75};
 
     fn tmp(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("aether-prof-{tag}-{}", std::process::id()))
+        let d = std::env::temp_dir().join(format!("aether-prof-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&d).ok();
+        d
     }
 
     #[test]
@@ -192,7 +294,7 @@ mod tests {
 
         kb.set_actuation(&[34, 49], Actuation::Fixed { travel_mm: 0.5 }).unwrap();
         let loaded = Profile::find_in(&dir, "mine").unwrap();
-        assert_eq!(loaded, mine);
+        assert_eq!(loaded, Profile { format: 2, ..mine });
         loaded.apply(&mut kb).unwrap();
         let t = kb.actuation_table().unwrap();
         assert_eq!((t.record(34).trip, t.record(49).trip), (250, 0));
@@ -200,34 +302,104 @@ mod tests {
     }
 
     #[test]
-    fn starters_presets_rename_delete() {
-        let dir = tmp("st");
+    fn builtins_set_actuation_only() {
         let mut kb = f75(FakeBoard::new());
-        Profile::ensure_starters(&mut kb, &dir).unwrap();
-        let names: Vec<String> = Profile::list_in(&dir).into_iter().map(|p| p.name).collect();
-        assert_eq!(names, ["Default", "Gaming", "Typing"]);
+        let b = Profile::builtins(&kb.board().slug.clone(), &kb.layout().clone());
+        let names: Vec<&str> = b.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Firmware default", "Competitive", "Gaming", "Balanced", "Typing"]);
+        assert!(b.iter().all(|p| p.builtin && p.lighting.is_none() && p.effect.is_none()));
 
-        let gaming = Profile::find_in(&dir, "Gaming").unwrap().actuation_table().unwrap();
+        let gaming = b[2].actuation_table().unwrap();
         let w = gaming.record(34);
         assert_eq!((w.trip, w.press, w.release, w.rapid_trigger()), (80, 15, 15, true));
         assert!(gaming.record(13).is_empty(), "slots that aren't keys stay empty");
-        assert_eq!(Profile::find_in(&dir, "Default").unwrap().actuation_table().unwrap(), ActTable::default());
+        assert_eq!(b[0].actuation_table().unwrap(), ActTable::default());
 
-        Profile::ensure_starters(&mut kb, &dir).unwrap(); // no duplicates on later runs
-        assert_eq!(Profile::list_in(&dir).len(), 3);
-        Profile::rename_in(&dir, "Typing", "Office").unwrap();
-        assert!(Profile::find_in(&dir, "Office").is_some() && Profile::find_in(&dir, "Typing").is_none());
-        assert!(Profile::rename_in(&dir, "Office", "gaming").is_err(), "no clobbering");
-        Profile::delete_in(&dir, "Office").unwrap();
-        assert_eq!(Profile::list_in(&dir).len(), 2);
+        let static_mode = aether_proto::Lighting { mode: 1, ..kb.lighting().unwrap() };
+        kb.set_lighting(&static_mode).unwrap();
+        b[2].apply(&mut kb).unwrap();
+        assert_eq!(kb.actuation_table().unwrap(), gaming);
+        assert_eq!(kb.lighting().unwrap(), static_mode, "built-ins leave lighting alone");
+    }
+
+    #[test]
+    fn format_1_files_still_load() {
+        let dir = tmp("v1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let v1 = format!(
+            r#"{{"format":1,"name":"Old","board":"aula-f75-he","lighting":{{"mode":1,"rgb":[1,2,3],"alpha":255,"color_mode":0,"brightness":5,"speed":3,"reserved":[0,0,0]}},"actuation":"{}"}}"#,
+            "00".repeat(aether_proto::ACT_TABLE_SIZE)
+        );
+        std::fs::write(dir.join("old.json"), v1).unwrap();
+        let p = Profile::find_in(&dir, "old").unwrap();
+        assert_eq!(p.lighting.unwrap().rgb, [1, 2, 3]);
+        assert!(p.effect.is_none() && !p.builtin);
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
-    fn wrong_board_is_refused() {
+    fn names_never_clobber() {
+        let dir = tmp("nm");
+        let mut kb = f75(FakeBoard::new());
+        let p = |n: &str, kb: &mut dyn Keyboard| Profile::capture(kb, n).unwrap();
+        p("Mine", &mut kb).save_new_in(&dir).unwrap();
+        assert!(p("mine", &mut kb).save_new_in(&dir).is_err(), "same name");
+        assert!(p("Mine!", &mut kb).save_in(&dir).is_err(), "different profile, same file");
+        p("MINE", &mut kb).save_in(&dir).unwrap(); // same profile: update
+        assert!(p("Gaming", &mut kb).save_in(&dir).is_err(), "built-in name");
+        assert_eq!(Profile::unique_name_in(&dir, "Mine"), "Mine 2");
+        assert_eq!(Profile::unique_name_in(&dir, "typing"), "typing 2");
+
+        Profile::rename_in(&dir, "mine", "Office").unwrap();
+        assert!(Profile::find_in(&dir, "Office").is_some() && Profile::find_in(&dir, "Mine").is_none());
+        p("Home", &mut kb).save_new_in(&dir).unwrap();
+        assert!(Profile::rename_in(&dir, "Office", "home").is_err(), "no clobbering");
+        assert!(Profile::rename_in(&dir, "Office", "Balanced").is_err());
+        Profile::rename_in(&dir, "Office", "office").unwrap(); // case-only rename
+        assert_eq!(Profile::find_in(&dir, "OFFICE").unwrap().name, "office");
+        Profile::delete_in(&dir, "OFFICE").unwrap();
+        assert_eq!(Profile::list_in(&dir, "").len(), 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn oddly_named_files_can_be_renamed_and_deleted() {
+        let dir = tmp("odd");
+        let mut kb = f75(FakeBoard::new());
+        let p = Profile::capture(&mut kb, "Default").unwrap();
+        p.write(&dir, &dir.join("Default.json")).unwrap();
+        p.save_in(&dir).unwrap();
+        assert_eq!(Profile::list_in(&dir, "").len(), 1, "updates the old file, no duplicate");
+        Profile::rename_in(&dir, "default", "Home").unwrap();
+        assert!(!dir.join("Default.json").exists());
+        Profile::delete_in(&dir, "home").unwrap();
+        assert!(Profile::list_in(&dir, "").is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn old_starters_are_renamed_not_lost() {
+        let dir = tmp("mg");
+        let mut kb = f75(FakeBoard::new());
+        let mut g = Profile::capture(&mut kb, "x").unwrap();
+        g.name = "Gaming".into();
+        g.write(&dir, &Profile::path_in(&dir, "Gaming")).unwrap();
+        Profile::migrate_in(&dir);
+        let names: Vec<String> = Profile::list_in(&dir, "").into_iter().map(|p| p.name).collect();
+        assert_eq!(names, ["Gaming (old)"]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn listing_filters_board_and_wrong_board_is_refused() {
+        let dir = tmp("bd");
         let mut kb = f75(FakeBoard::new());
         let mut p = Profile::capture(&mut kb, "x").unwrap();
         p.board = "some-other-board".into();
+        p.save_in(&dir).unwrap();
+        assert!(Profile::list_in(&dir, "aula-f75-he").is_empty());
+        assert_eq!(Profile::list_in(&dir, "").len(), 1);
         assert!(p.apply(&mut kb).is_err());
+        std::fs::remove_dir_all(dir).ok();
     }
 }

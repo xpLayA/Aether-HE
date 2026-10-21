@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use aether_device::{Backup, Keyboard, Profile, Registry, backups_dir, open_first, profiles_dir};
+use aether_device::{BUILTINS, Backup, Keyboard, PRESETS, Profile, Registry, backups_dir, open_first, profiles_dir};
 use aether_effects::{Direction, Engine, KeyPos, Kind, Params};
 use aether_proto::{Actuation, Lighting, raw_to_mm};
 use anyhow::{Context, Result, anyhow, bail};
@@ -118,13 +118,19 @@ enum ActCmd {
 
 #[derive(Subcommand)]
 enum ProfileCmd {
-    /// List saved profiles.
+    /// List the built-in and custom profiles.
     List,
-    /// Save the board's current lighting and actuation as a profile (replaces one with that name).
+    /// Save the board's current lighting and actuation as a new custom profile.
     Save { name: String },
-    /// Apply a profile (backs up first, verifies actuation).
+    /// Overwrite a custom profile with the board's current lighting and actuation (keeps its effect).
+    Update { name: String },
+    /// Apply a built-in or custom profile (backs up first, verifies actuation).
     Apply { name: String },
-    /// Delete a profile.
+    /// Copy a profile (built-ins too) to a new custom profile.
+    Duplicate { name: String, new_name: String },
+    /// Rename a custom profile.
+    Rename { name: String, new_name: String },
+    /// Delete a custom profile.
     Delete { name: String },
 }
 
@@ -338,27 +344,34 @@ fn actuation(c: ActCmd) -> Result<()> {
 
 fn profile(c: ProfileCmd) -> Result<()> {
     let dir = profiles_dir()?;
+    Profile::migrate_in(&dir);
     match c {
         ProfileCmd::List => {
-            let all = Profile::list_in(&dir);
-            if all.is_empty() {
-                println!("no profiles yet (the GUI creates Default / Gaming / Typing on first run)");
+            for (name, preset) in BUILTINS {
+                println!("{name:<20} built-in: {} on every key, keeps lighting", PRESETS[preset].1);
             }
-            for p in all {
+            for p in Profile::list_in(&dir, "") {
                 let t = p.actuation_table()?;
                 let set = (0..aether_proto::KEY_SLOTS).filter(|&i| !t.record(i).is_empty()).count();
                 let fx = p.effect.as_ref().map_or(String::new(), |e| format!(", effect {}", e.kind));
-                println!("{:<16} lighting mode {}, {set} keys configured{fx}", p.name, p.lighting.mode);
+                let light = p.lighting.map_or("keeps lighting".into(), |l| format!("lighting mode {}", l.mode));
+                println!("{:<20} {light}, {set} keys configured{fx}", p.name);
             }
         }
         ProfileCmd::Save { name } => {
             let mut kb = connect()?;
-            let path = Profile::capture(kb.as_mut(), &name)?.save_in(&dir)?;
+            let path = Profile::capture(kb.as_mut(), &name)?.save_new_in(&dir)?;
             println!("saved {}", path.display());
         }
-        ProfileCmd::Apply { name } => {
-            let p = Profile::find_in(&dir, &name).ok_or_else(|| anyhow!("no profile named {name:?}"))?;
+        ProfileCmd::Update { name } => {
+            let old = Profile::find_in(&dir, &name).ok_or_else(|| anyhow!("no custom profile named {name:?}"))?;
             let mut kb = connect()?;
+            let p = Profile { effect: old.effect, ..Profile::capture(kb.as_mut(), &old.name)? };
+            println!("updated {}", p.save_in(&dir)?.display());
+        }
+        ProfileCmd::Apply { name } => {
+            let mut kb = connect()?;
+            let p = find_any(&dir, kb.as_ref(), &name)?;
             let backup = p.apply(kb.as_mut())?;
             eprintln!("backup: {}", backup.display());
             println!("applied {:?} (actuation verified)", p.name);
@@ -366,12 +379,32 @@ fn profile(c: ProfileCmd) -> Result<()> {
                 println!("note: its {} effect runs only in the GUI", e.kind);
             }
         }
+        ProfileCmd::Duplicate { name, new_name } => {
+            let p = match Profile::find_in(&dir, &name) {
+                Some(p) => p,
+                None => find_any(&dir, connect()?.as_ref(), &name)?,
+            };
+            let copy = Profile { name: new_name.trim().into(), builtin: false, ..p };
+            println!("saved {}", copy.save_new_in(&dir)?.display());
+        }
+        ProfileCmd::Rename { name, new_name } => {
+            println!("renamed to {}", Profile::rename_in(&dir, &name, &new_name)?.display());
+        }
         ProfileCmd::Delete { name } => {
             Profile::delete_in(&dir, &name)?;
             println!("deleted {name:?}");
         }
     }
     Ok(())
+}
+
+/// A built-in (needs the board's layout) or custom profile by name.
+fn find_any(dir: &std::path::Path, kb: &dyn Keyboard, name: &str) -> Result<Profile> {
+    Profile::builtins(&kb.board().slug, kb.layout())
+        .into_iter()
+        .find(|p| p.name.eq_ignore_ascii_case(name.trim()))
+        .or_else(|| Profile::find_in(dir, name))
+        .ok_or_else(|| anyhow!("no profile named {name:?}"))
 }
 
 /// Validate, back up, write and verify.
