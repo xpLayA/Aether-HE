@@ -1,11 +1,19 @@
 # Aether HE
 
-**A fast, native Linux control app for the AULA F75 HE Hall-effect keyboard, written in Rust.**
+**An unofficial, community-made Linux app for configuring the AULA F75 HE Hall-effect keyboard,
+written in Rust.**
+
+> **Not an official AULA product.** Aether HE is an independent hobby project. It is not affiliated with,
+> endorsed by, or supported by AULA, or by the makers of the keyboard's controller and official driver.
+> Product names are used only to say which hardware it works with, and remain the property of their
+> owners. It was built by studying the protocol and testing on one keyboard. It doesn't claim to be
+> better than, or a replacement for, the official software. **Use it at your own risk.** See
+> [Disclaimer](#disclaimer).
 
 Profiles, firmware lighting with live preview, animated per-key effects, actuation and rapid trigger,
 with an automatic backup before every change.
 
-`Rust` · `Linux (Wayland / X11)` · `AULA F75 HE — hardware-verified`
+`Rust` · `Linux (Wayland / X11)` · `GPL-3.0-or-later` · `tested on one AULA F75 HE (firmware V1.55)`
 
 ![Profiles](docs/media/gui-profiles.png)
 
@@ -30,7 +38,7 @@ with an automatic backup before every change.
   - One-click presets: Competitive, Gaming, Balanced, Typing, Default.
   - *All keys* or a selection, chosen by clicking, Shift+click, a drag box, or shortcuts like WASD.
   - Reset to the factory default.
-- **Safety first:**
+- **Safeguards** (they reduce risk; they don't remove it):
   - A backup is taken automatically before every change.
   - Every actuation write is verified by reading the keyboard back.
   - *Restore original* returns the keyboard to how it was before Aether touched it.
@@ -40,7 +48,7 @@ with an automatic backup before every change.
 
 | Keyboard | USB ID | Status |
 |---|---|---|
-| AULA F75 HE (wired, USB-C) | `38A6:2729` | ✅ lighting · host effects · actuation · rapid trigger |
+| AULA F75 HE (wired, USB-C) | `38A6:2729` | Tested: lighting · host effects · actuation · rapid trigger |
 
 **Not supported (yet):**
 - key remapping, macros, SOCD, dead zones,
@@ -207,11 +215,12 @@ the keyboard really has. Then restore a backup if needed.
 **The window doesn't open:** run `aether-gui` from a terminal to see the error. It needs a working
 Wayland or X11 session with OpenGL.
 
-## Safety
+## Safeguards
 
-Aether only sends commands that have been verified on the F75 HE, and it checks each write by reading
-the keyboard back. The vendor protocol's flash, factory-reset and calibration commands **can't even be
-expressed** in Aether's protocol code, and a second check refuses them at the USB layer.
+Aether only sends commands that were tested on an F75 HE, and it checks each write by reading the
+keyboard back. The vendor protocol's flash, factory-reset and calibration commands can't be expressed
+in Aether's protocol code, and a second check refuses them at the USB layer. These measures lower the
+risk; they are not a guarantee. See the disclaimer below.
 
 ---
 
@@ -237,9 +246,36 @@ AETHER_PAGE=actuation ./target/release/aether-gui   # open on a page
 - Protocol research and the original Python app, kept as the reference implementation:
   [`docs/context/`](docs/context/) and [`legacy/python/`](legacy/python/).
 
+## Disclaimer
+
+- **Unofficial.** This project is not made, endorsed or supported by AULA or its partners. For official
+  support, firmware updates and warranty questions, use AULA's own software and support channels.
+- **No warranty.** This software is provided "as is", without warranty of any kind. That includes the
+  implied warranties of merchantability and fitness for a particular purpose. See sections 15 and 16 of
+  the [GPL](LICENSE). You are responsible for any changes it makes to your keyboard.
+- **Limited testing.** It has been tested on a single AULA F75 HE (USB `38A6:2729`, firmware V1.55) on
+  Linux. Other units, firmware versions or revisions may behave differently.
+- **Your warranty.** Using third-party configuration software may affect your keyboard's manufacturer
+  warranty. Check AULA's terms if this matters to you.
+- **Protocol knowledge** comes from observing the official driver for interoperability purposes. No
+  official documentation was used, and none of the vendor's code is part of the app.
+
+## License
+
+This project's code is licensed under the **[GNU General Public License v3.0 or later](LICENSE)**.
+You can use, study, share and modify it. If you distribute it, or a modified version, you must make the
+source available under the same licence.
+
+Some files aren't covered, because they belong to others. See [NOTICE.md](NOTICE.md):
+- **The original Python app** (`legacy/python/`) and the upstream research. The original author published
+  them without a licence, which leaves all rights with them, so we can't relicense them. They're kept for
+  reference.
+- **AULA/HFD vendor files** kept for protocol research.
+
 ## Credits
 
 - Forked from [MrWhosNexus/Aether-HE](https://github.com/MrWhosNexus/Aether-HE) (Python, AULA WIN60 HE).
   Rewritten in Rust and brought up on the F75 HE.
-- UI built with [Slint](https://slint.dev) (royalty-free licence; attribution on the Device page).
+- UI built with [Slint](https://slint.dev), used under its GPLv3 licence option (attribution on the
+  Device page).
 - [Inter](https://rsms.me/inter/) typeface, SIL Open Font License (`crates/aether-gui/assets/OFL.txt`).

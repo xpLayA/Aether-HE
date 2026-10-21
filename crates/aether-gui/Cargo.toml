@@ -4,6 +4,8 @@ description = "Simple desktop UI for Aether keyboards"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "aether-gui"

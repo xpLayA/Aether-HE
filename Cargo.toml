@@ -6,6 +6,8 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "GPL-3.0-or-later"
+repository = "https://github.com/xpLayA/aether-he"
 
 [workspace.dependencies]
 aether-proto = { path = "crates/aether-proto" }
