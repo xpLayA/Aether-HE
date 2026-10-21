@@ -32,7 +32,7 @@ import device_state                              # noqa: E402
 import protocol                                  # noqa: E402
 from drivers import Win60Driver, NullDriver, UnsupportedFeature  # noqa: E402
 
-CAPTURE = (Path(ROOT) / "docs" / "context" / "hed-aulacn-raw"
+CAPTURE = (Path(ROOT) / ".." / ".." / "docs" / "context" / "hed-aulacn-raw"
            / "webhid-capture-win60.json")
 
 # Vendor-UI event lists (delay BEFORE each step), see the capture tests.

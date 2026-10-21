@@ -29,7 +29,7 @@ sys.path.insert(0, ROOT)
 
 import protocol_mini60 as pm
 
-CAPTURE = os.path.join(ROOT, "docs", "context", "issue-6-mini60-pro-raw",
+CAPTURE = os.path.join(ROOT, "..", "..", "docs", "context", "issue-6-mini60-pro-raw",
                        "webhid-capture-2026-07-20.json")
 
 
@@ -464,7 +464,7 @@ def test_to_report_prepends_report_id():
 # Same rules as above: builders must reproduce captured OUT frames BYTE
 # FOR BYTE; structural tests are labelled where no captured frames exist.
 # =====================================================================
-CAPTURE_MACROS = os.path.join(ROOT, "docs", "context",
+CAPTURE_MACROS = os.path.join(ROOT, "..", "..", "docs", "context",
                               "issue-6-mini60-pro-raw",
                               "webhid-capture-macros.json")
 
@@ -827,10 +827,10 @@ def test_macro_capture_contains_no_dangerous_commands():
 # + the 21-chunk 0x24 table rendered visibly over the dongle, and
 # 0x10/0x12/0x13/0x17 answer 0x55 replies on a raw handle.
 # =====================================================================
-CAPTURE_DONGLE = os.path.join(ROOT, "docs", "context",
+CAPTURE_DONGLE = os.path.join(ROOT, "..", "..", "docs", "context",
                               "issue-6-mini60-pro-raw",
                               "webhid-capture-dongle-2026-07-20.json")
-CAPTURE_HANDSHAKE = os.path.join(ROOT, "docs", "context",
+CAPTURE_HANDSHAKE = os.path.join(ROOT, "..", "..", "docs", "context",
                                  "issue-6-mini60-pro-raw",
                                  "webhid-capture-dongle-handshake.json")
 W = 32   # pm.FRAME_LEN_WIRELESS, spelled out where it is asserted
@@ -1321,13 +1321,13 @@ def test_registry_mode_byte_10_is_native_and_not_the_win60_custom_alias():
 #   UNVERIFIED  — explicitly NOT asserted; see
 #                 test_advanced_key_unknowns_are_not_guessed_at.
 # =====================================================================
-CAPTURE_FULL_SUITE = os.path.join(ROOT, "docs", "context",
+CAPTURE_FULL_SUITE = os.path.join(ROOT, "..", "..", "docs", "context",
                                   "issue-6-mini60-pro-raw",
                                   "webhid-capture-FULL-SUITE-wireless.json")
-CAPTURE_ADVKEYS = os.path.join(ROOT, "docs", "context",
+CAPTURE_ADVKEYS = os.path.join(ROOT, "..", "..", "docs", "context",
                                "issue-6-mini60-pro-raw",
                                "webhid-capture-advkeys-all-wireless.json")
-CAPTURE_SOCD = os.path.join(ROOT, "docs", "context",
+CAPTURE_SOCD = os.path.join(ROOT, "..", "..", "docs", "context",
                             "issue-6-mini60-pro-raw",
                             "webhid-capture-socd-wireless.json")
 

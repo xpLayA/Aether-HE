@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from validate_keymap import load_keymap, validate_keymap
 
 LAYOUT_DIR = os.path.join(ROOT, "ui", "layouts")
-VENDOR_HED = os.path.join(ROOT, "docs", "context", "hed-aulacn-raw", "driver_src")
+VENDOR_HED = os.path.join(ROOT, "..", "..", "docs", "context", "hed-aulacn-raw", "driver_src")
 
 
 def _layout_paths():

@@ -29,7 +29,7 @@ import boards
 import protocol
 from drivers import Win60Driver
 
-CAPTURE = (Path(__file__).resolve().parents[1]
+CAPTURE = (Path(__file__).resolve().parents[3]
            / "docs" / "context" / "hed-aulacn-raw" / "webhid-capture-win60.json")
 
 with open(CAPTURE, "r", encoding="utf-8") as fh:
