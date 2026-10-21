@@ -61,6 +61,8 @@ pub struct Capabilities {
     pub host_effects: bool,
     pub actuation: bool,
     pub rapid_trigger: bool,
+    /// Per-key colours stored on the board (0x14/0x24, lighting mode 20).
+    pub per_key_store: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

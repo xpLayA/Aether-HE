@@ -4,6 +4,9 @@
 //! rendering a colour per key every frame and streaming it to the board.
 //! Motion is time-based, so effects look the same at any frame rate; spawners
 //! are normalised so particle density is rate-independent too.
+//!
+//! Reactive kinds ([`Kind::reactive`]) light up from the keys you press: the
+//! caller feeds presses in with [`Engine::press`].
 
 use std::time::{Duration, Instant};
 
@@ -23,10 +26,17 @@ pub enum Kind {
     Twinkle,
     Rain,
     Striation,
+    Ripple,
+    Splash,
+    Cross,
+    Sparks,
+    Afterglow,
+    Heatmap,
+    Lightning,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 9] = [
+    pub const ALL: [Kind; 16] = [
         Kind::Wave,
         Kind::Breathe,
         Kind::Aurora,
@@ -36,6 +46,13 @@ impl Kind {
         Kind::Rain,
         Kind::Striation,
         Kind::Static,
+        Kind::Ripple,
+        Kind::Splash,
+        Kind::Cross,
+        Kind::Sparks,
+        Kind::Afterglow,
+        Kind::Heatmap,
+        Kind::Lightning,
     ];
 
     pub fn name(self) -> &'static str {
@@ -49,7 +66,19 @@ impl Kind {
             Kind::Twinkle => "twinkle",
             Kind::Rain => "rain",
             Kind::Striation => "striation",
+            Kind::Ripple => "ripple",
+            Kind::Splash => "splash",
+            Kind::Cross => "cross",
+            Kind::Sparks => "sparks",
+            Kind::Afterglow => "afterglow",
+            Kind::Heatmap => "heatmap",
+            Kind::Lightning => "lightning",
         }
+    }
+
+    /// Lights up from key presses (needs [`Engine::press`]); dark otherwise.
+    pub fn reactive(self) -> bool {
+        matches!(self, Kind::Ripple | Kind::Splash | Kind::Cross | Kind::Sparks | Kind::Afterglow | Kind::Heatmap | Kind::Lightning)
     }
 
     pub fn from_name(s: &str) -> Option<Kind> {
@@ -144,6 +173,21 @@ struct Particle {
     color: Rgb,
 }
 
+/// One key press, spreading out from the key at (x, y).
+struct Impulse {
+    born: f32,
+    idx: usize,
+    x: f32,
+    y: f32,
+    color: Rgb,
+    /// Sparks: velocities (board widths per second).
+    sparks: Vec<(f32, f32)>,
+    /// Lightning: the keys the bolt jumps through.
+    path: Vec<usize>,
+}
+
+const MAX_IMPULSES: usize = 48;
+
 /// Renders frames for one effect over a board's keys.
 pub struct Engine {
     params: Params,
@@ -156,6 +200,13 @@ pub struct Engine {
     twinkles: Vec<Option<(f32, Rgb)>>,
     particles: Vec<Particle>,
     last_spawn: f32,
+    /// Key centres in board widths on both axes, so distances are round.
+    pos: Vec<(usize, f32, f32)>,
+    pending: Vec<usize>,
+    impulses: Vec<Impulse>,
+    heat: Vec<f32>,
+    last_t: f32,
+    next_color: usize,
 }
 
 const MAX_PARTICLES: usize = 96;
@@ -190,6 +241,8 @@ impl Engine {
 
         let palette: Vec<Rgb> =
             if params.palette.is_empty() { vec![[255; 3]] } else { params.palette.iter().map(|&c| gamma(c)).collect() };
+        let w = if maxx > minx { maxx - minx } else { 1.0 };
+        let pos = keys.iter().filter(|k| k.index < KEY_SLOTS).map(|k| (k.index, (k.x - minx) / w, (k.y - miny) / w)).collect();
         Engine {
             palette,
             params: Params { speed: params.speed.clamp(0.0, 1.0), brightness: params.brightness.clamp(0.0, 1.0), ..params },
@@ -200,6 +253,19 @@ impl Engine {
             twinkles: vec![None; KEY_SLOTS],
             particles: Vec::new(),
             last_spawn: 0.0,
+            pos,
+            pending: Vec::new(),
+            impulses: Vec::new(),
+            heat: vec![0.0; KEY_SLOTS],
+            last_t: 0.0,
+            next_color: 0,
+        }
+    }
+
+    /// A key went down; reactive kinds start from it on the next frame.
+    pub fn press(&mut self, idx: usize) {
+        if self.params.kind.reactive() && idx < KEY_SLOTS && self.pending.len() < MAX_IMPULSES {
+            self.pending.push(idx);
         }
     }
 
@@ -336,6 +402,9 @@ impl Engine {
                     }
                 }
             }
+            Kind::Ripple | Kind::Splash | Kind::Cross | Kind::Sparks | Kind::Afterglow | Kind::Heatmap | Kind::Lightning => {
+                self.render_reactive(t, &mut f)
+            }
             Kind::Striation => {
                 for &(idx, ..) in &self.keys {
                     f[idx] = bg;
@@ -365,6 +434,179 @@ impl Engine {
         }
         f
     }
+
+    /// Seconds an impulse of the current kind stays visible.
+    fn life(&self) -> f32 {
+        let s = self.params.speed;
+        match self.params.kind {
+            Kind::Ripple => 1.1 / ripple_speed(s),
+            Kind::Cross => 1.0 / ripple_speed(s),
+            Kind::Splash => 1.5 - s,
+            Kind::Sparks => 0.9 - s * 0.4,
+            Kind::Lightning => (0.6 - s * 0.3).max(0.2),
+            _ => 0.0,
+        }
+    }
+
+    fn render_reactive(&mut self, t: f32, f: &mut Frame) {
+        let p = self.params.clone();
+        let (s, b) = (p.speed, p.brightness);
+        let bg = scale(p.bg, b);
+        let dt = (t - self.last_t).max(0.0);
+        self.last_t = t;
+        for &(idx, ..) in &self.keys {
+            f[idx] = bg;
+        }
+
+        for idx in std::mem::take(&mut self.pending) {
+            let Some(&(_, x, y)) = self.pos.iter().find(|k| k.0 == idx) else { continue };
+            let color = self.palette[self.next_color % self.palette.len()];
+            self.next_color += 1;
+            match p.kind {
+                Kind::Afterglow => self.twinkles[idx] = Some((t, color)),
+                Kind::Heatmap => self.heat[idx] = (self.heat[idx] + 0.2).min(1.0),
+                _ => {
+                    let sparks = if p.kind == Kind::Sparks {
+                        (0..8)
+                            .map(|_| {
+                                let (a, v) = (fastrand::f32() * std::f32::consts::TAU, (0.25 + fastrand::f32() * 0.5) * (0.5 + s));
+                                (a.cos() * v, a.sin() * v)
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let path = if p.kind == Kind::Lightning { self.bolt(x, y) } else { Vec::new() };
+                    self.impulses.push(Impulse { born: t, idx, x, y, color, sparks, path });
+                }
+            }
+        }
+        let life = self.life();
+        self.impulses.retain(|i| t - i.born < life);
+        if self.impulses.len() > MAX_IMPULSES {
+            self.impulses.drain(..self.impulses.len() - MAX_IMPULSES);
+        }
+
+        // How strongly impulse `i` lights the key at (kx, ky), 0..1.
+        let v = ripple_speed(s);
+        let glow = |f: &mut Frame, idx: usize, c: Rgb, a: f32| {
+            if a > 0.004 {
+                f[idx] = lerp(f[idx], scale(c, b), a.min(1.0));
+            }
+        };
+        match p.kind {
+            Kind::Afterglow => {
+                let k = 0.5 + s * 3.0;
+                for &(idx, ..) in &self.keys {
+                    if let Some((born, c)) = self.twinkles[idx] {
+                        let a = (-(t - born) * k).exp();
+                        if a < 0.004 {
+                            self.twinkles[idx] = None;
+                        } else {
+                            glow(f, idx, c, a);
+                        }
+                    }
+                }
+            }
+            Kind::Heatmap => {
+                let decay = (-dt / (30.0 - s * 25.0)).exp();
+                let top = (self.palette.len() - 1) as f32;
+                for &(idx, ..) in &self.keys {
+                    self.heat[idx] *= decay;
+                    let h = self.heat[idx];
+                    if h > 0.004 {
+                        glow(f, idx, palette_at(&self.palette, h * top), (h * 4.0).min(1.0));
+                    }
+                }
+            }
+            _ => {
+                for imp in &self.impulses {
+                    let age = t - imp.born;
+                    let fade = (1.0 - age / life).max(0.0);
+                    let flash = (-age * 8.0).exp();
+                    glow(f, imp.idx, lerp(imp.color, [255; 3], 0.4), flash);
+                    match p.kind {
+                        Kind::Lightning => {
+                            let flicker = 0.55 + 0.45 * fastrand::f32();
+                            for (n, &idx) in imp.path.iter().enumerate() {
+                                // the bolt reaches each step in a few ms, then flickers out
+                                if age * 60.0 >= n as f32 {
+                                    glow(f, idx, lerp(imp.color, [255; 3], 0.5 * fade), fade * flicker);
+                                }
+                            }
+                        }
+                        _ => {
+                            for &(idx, kx, ky) in &self.pos {
+                                let (dx, dy) = (kx - imp.x, ky - imp.y);
+                                let a = match p.kind {
+                                    Kind::Ripple => {
+                                        let d = (dx * dx + dy * dy).sqrt();
+                                        (-((d - age * v) / 0.05).powi(2)).exp() * fade
+                                    }
+                                    Kind::Splash => {
+                                        let r = 0.14 * (age / 0.12).min(1.0);
+                                        let d = (dx * dx + dy * dy).sqrt();
+                                        let edge = if d < r { 1.0 } else { (-((d - r) / 0.04).powi(2)).exp() };
+                                        edge * fade.powf(1.5)
+                                    }
+                                    Kind::Cross => {
+                                        let along = if dy.abs() < 0.03 {
+                                            dx.abs()
+                                        } else if dx.abs() < 0.035 {
+                                            dy.abs()
+                                        } else {
+                                            continue;
+                                        };
+                                        (-((along - age * v) / 0.05).powi(2)).exp() * fade
+                                    }
+                                    Kind::Sparks => imp
+                                        .sparks
+                                        .iter()
+                                        .map(|(vx, vy)| {
+                                            let (ex, ey) = (dx - vx * age, dy - vy * age);
+                                            (-(ex * ex + ey * ey) / (0.04 * 0.04)).exp()
+                                        })
+                                        .fold(0.0, f32::max)
+                                        * fade,
+                                    _ => 0.0,
+                                };
+                                glow(f, idx, imp.color, a);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A jagged path of keys from (x, y) to the board edge, in a random direction.
+    fn bolt(&self, x: f32, y: f32) -> Vec<usize> {
+        let (dx, dy) = [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)][fastrand::usize(..4)];
+        let (mut cx, mut cy) = (x, y);
+        let mut path = Vec::new();
+        for _ in 0..24 {
+            let next: Vec<&(usize, f32, f32)> = self
+                .pos
+                .iter()
+                .filter(|(_, kx, ky)| {
+                    let (fwd, side) = ((kx - cx) * dx + (ky - cy) * dy, ((kx - cx) * dy - (ky - cy) * dx).abs());
+                    (0.03..0.12).contains(&fwd) && side < 0.09
+                })
+                .collect();
+            if next.is_empty() {
+                break;
+            }
+            let &&(idx, kx, ky) = &next[fastrand::usize(..next.len())];
+            path.push(idx);
+            (cx, cy) = (kx, ky);
+        }
+        path
+    }
+}
+
+/// Ripple/cross front speed in board widths per second.
+fn ripple_speed(s: f32) -> f32 {
+    0.35 + s * 1.1
 }
 
 fn trim(v: &mut Vec<Particle>) {
@@ -378,18 +620,23 @@ fn minmax(it: impl Iterator<Item = f32>) -> (f32, f32) {
 }
 
 /// Paces `engine` at `fps`, handing each frame to `send` until `keep_going`
-/// returns false or `send` fails. Frame time is subtracted from the sleep so
-/// slow writes don't slow the animation.
+/// returns false or `send` fails. `presses` is polled before every frame for
+/// keys that went down. Frame time is subtracted from the sleep so slow
+/// writes don't slow the animation.
 pub fn run<E>(
     engine: &mut Engine,
     fps: f32,
     mut keep_going: impl FnMut() -> bool,
+    mut presses: impl FnMut() -> Vec<usize>,
     mut send: impl FnMut(&Frame) -> Result<(), E>,
 ) -> Result<(), E> {
     let interval = Duration::from_secs_f32(1.0 / fps.max(1.0));
     let t0 = Instant::now();
     while keep_going() {
         let start = Instant::now();
+        for idx in presses() {
+            engine.press(idx);
+        }
         let frame = engine.render(t0.elapsed().as_secs_f32());
         send(&frame)?;
         if let Some(rest) = interval.checked_sub(start.elapsed()) {
@@ -413,6 +660,9 @@ mod tests {
             let mut e = Engine::new(&grid(), Params { kind, ..Params::default() }, 28.0);
             let mut lit = 0;
             for i in 0..200 {
+                if i % 20 == 0 {
+                    e.press(16 * 2 + 7);
+                }
                 let f = e.render(i as f32 / 28.0);
                 lit = lit.max(f.iter().filter(|c| **c != [0; 3]).count());
             }
@@ -430,6 +680,36 @@ mod tests {
                 assert_eq!(*c, [0; 3], "slot {i}");
             }
         }
+    }
+
+    #[test]
+    fn reactive_effects_stay_dark_until_a_key_is_pressed() {
+        for kind in Kind::ALL.into_iter().filter(|k| k.reactive()) {
+            let mut e = Engine::new(&grid(), Params { kind, ..Params::default() }, 28.0);
+            for i in 0..60 {
+                assert!(e.render(i as f32 / 28.0).iter().all(|c| *c == [0; 3]), "{kind:?}");
+            }
+        }
+        let mut e = Engine::new(&grid(), Params::default(), 28.0);
+        e.press(5); // ignored by non-reactive kinds
+        assert!(e.pending.is_empty());
+    }
+
+    #[test]
+    fn ripple_ring_grows_outward() {
+        // grid keys are 55 apart over a 825-wide board: one key = 1/15 board width
+        let mut e = Engine::new(&grid(), Params { kind: Kind::Ripple, speed: 0.5, ..Params::default() }, 28.0);
+        let centre = 2 * 16 + 7;
+        let (near, far) = (2 * 16 + 8, 2 * 16 + 13); // 1 and 6 keys to the right
+        e.press(centre);
+        let lum = |f: &Frame, i: usize| f[i].iter().map(|&v| v as u32).sum::<u32>();
+        let early = e.render(0.05);
+        // front speed 0.9 board widths/s: 6 keys = 0.4 widths, reached at ~0.44 s
+        let late = e.render(0.44);
+        assert!(lum(&early, near) > lum(&early, far), "starts near the key");
+        assert!(lum(&late, far) > lum(&late, near), "then moves out");
+        assert!(lum(&late, far) > lum(&early, far));
+        assert!(e.render(5.0).iter().all(|c| *c == [0; 3]), "and fades out");
     }
 
     #[test]

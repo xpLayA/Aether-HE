@@ -18,3 +18,10 @@ listened 9 s and 16 s, then always sent `SET_SIMULATION_TEST_OFF` (`AA 67 00…`
 five other collections. The vendor UI never calls this mode; its live travel display uses calibration
 mode (0x64, preceded by a calibration wipe), which Aether never sends. Live depth is therefore not
 offered for this board. Not tried: `0x60 GET_MAGNETIC_AXIS_KEY_STATUS` (never referenced, format unknown).
+
+## Stored per-key colours probe (2026-10-21): 0x24 works
+`docs/context/f75-bringup/f75_custom_led_rt.py` read 0x13 + 0x14 (all zero), wrote a hue sweep with
+`0x24` (all 9 pages acked `55 24 …`), set mode 20, read 0x14 back (byte-exact), held 6 s, then wrote
+the original table back and restored the exact lighting block (both verified). Before-state:
+`custom_led_before.json`. Nobody watched the keys during the hold,
+so the visible result is unconfirmed; the GUI's paint + Apply is the visual check.

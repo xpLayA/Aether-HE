@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use aether_device::{BUILTINS, Backup, Keyboard, PRESETS, Profile, Registry, backups_dir, open_first, profiles_dir};
+use aether_device::{BUILTINS, Backup, KeyPresses, Keyboard, PRESETS, Profile, Registry, backups_dir, open_first, profiles_dir};
 use aether_effects::{Direction, Engine, KeyPos, Kind, Params};
 use aether_proto::{Actuation, Lighting, raw_to_mm};
 use anyhow::{Context, Result, anyhow, bail};
@@ -426,12 +426,20 @@ fn effect(params: Params, seconds: Option<f32>) -> Result<()> {
     let deadline = seconds.map(|s| Instant::now() + Duration::from_secs_f32(s));
 
     eprintln!("running {} at {fps} fps, Ctrl+C to stop", params.kind.name());
+    let listener = if params.kind.reactive() {
+        let l = KeyPresses::open(kb.board(), kb.layout()).context("reactive effects need the keyboard's key presses")?;
+        eprintln!("reacting to key presses on the keyboard");
+        Some(l)
+    } else {
+        None
+    };
     let mut engine = Engine::new(&keys, params, fps);
     kb.stream_begin()?;
     let result = aether_effects::run(
         &mut engine,
         fps,
         || running.load(Ordering::SeqCst) && deadline.is_none_or(|d| Instant::now() < d),
+        || listener.as_ref().map(|l| l.drain().collect()).unwrap_or_default(),
         |frame| kb.stream_frame(frame),
     );
     // Always hand the LEDs back, even if streaming failed.

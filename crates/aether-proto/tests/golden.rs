@@ -100,6 +100,7 @@ fn stream_frames_match_python() {
         colors[i] = [0, 1, 2].map(|k| c[k].as_u64().unwrap() as u8);
     }
     frames_eq(&stream_frames(&led_table(&colors)), &g["stream_frames"]);
+    frames_eq(&custom_led_writes(&led_table(&colors)), &g["custom_led_writes"]);
     frames_eq(&[stream_clear()], &Value::Array(vec![g["stream_clear"].clone()]));
 }
 

@@ -217,6 +217,31 @@ export component LightingPage inherits VerticalLayout {
             label: "Colour";
             Text { text: "This effect picks its own colours."; color: Theme.muted; vertical-alignment: center; }
         }
+        if UiState.light-custom: Row {
+            label: "Paint";
+            VerticalLayout {
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Btn {
+                        text: "Paint selected (" + UiState.selected-count + ")";
+                        kind: "primary";
+                        enabled: UiState.selected-count > 0;
+                        clicked => { Actions.light-paint("selected"); }
+                    }
+                    Btn { text: "Fill all"; clicked => { Actions.light-paint("all"); } }
+                    Btn { text: "Erase selected"; kind: "ghost"; enabled: UiState.selected-count > 0; clicked => { Actions.light-paint("erase"); } }
+                    Btn { text: "Pick from key"; kind: "ghost"; enabled: UiState.selected-count == 1; clicked => { Actions.light-paint("pick"); } }
+                }
+                Text {
+                    text: "Select keys on the keyboard above (click, Ctrl-click, drag or the quick picks), choose a colour, then paint. The keyboard above shows your colours; Apply stores them on the keyboard, so they stay without this app.";
+                    color: Theme.muted;
+                    font-size: Theme.font-small;
+                    wrap: word-wrap;
+                }
+            }
+        }
         Row {
             label: "Brightness";
             ValueSlider { minimum: 0; maximum: UiState.brightness-max; step: 1; decimals: 0; value <=> UiState.light-brightness; changed => { Actions.light-edited(); } }
@@ -259,7 +284,14 @@ export component EffectsPage inherits VerticalLayout {
                 selected => { Actions.fx-pick(self.current-index); }
                 max-width: 320px;
             }
+            if UiState.fx-reactive: Chip { text: "Reacts to key presses"; y: (parent.height - self.height) / 2; }
             Rectangle { horizontal-stretch: 1; }
+        }
+        if UiState.fx-reactive: Text {
+            text: "Lights up from the keys you press. Colours are used in turn, one per press. Click keys on the keyboard above to try it.";
+            color: Theme.muted;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
         }
         Row {
             label: "Colours";
@@ -308,7 +340,7 @@ export component EffectsPage inherits VerticalLayout {
         }
         Row { label: "Speed"; ValueSlider { minimum: 0; maximum: 1; step: 0.01; show-value: false; value <=> UiState.fx-speed; } }
         Row { label: "Brightness"; ValueSlider { minimum: 0; maximum: 1; step: 0.01; show-value: false; value <=> UiState.fx-brightness; } }
-        Row {
+        if !UiState.fx-reactive: Row {
             label: "Direction";
             Segmented { options: ["Right", "Left", "Up", "Down"]; current <=> UiState.fx-direction; }
             Rectangle { horizontal-stretch: 1; }

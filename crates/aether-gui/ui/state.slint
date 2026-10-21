@@ -90,6 +90,8 @@ export global UiState {
     in property <float> brightness-max: 5;
     in property <float> speed-max: 5;
     in property <bool> light-dirty;
+    // mode 20 on a board that stores per-key colours: show the paint tools
+    in property <bool> light-custom;
     in-out property <bool> live-preview: true;
     in property <bool> previewing;
     in-out property <bool> simulate: true;
@@ -106,6 +108,7 @@ export global UiState {
     in-out property <float> fx-speed;
     in-out property <float> fx-brightness;
     in-out property <int> fx-direction;
+    in property <bool> fx-reactive;
 
     // actuation
     in property <[Preset]> presets;
@@ -158,6 +161,8 @@ export global Actions {
     callback light-edited();
     callback light-preview-toggled(bool);
     callback light-sim-toggled(bool);
+    // "selected" | "all" | "erase" | "pick"
+    callback light-paint(string);
 
     callback fx-pick(int);
     callback fx-set-color(int, color);

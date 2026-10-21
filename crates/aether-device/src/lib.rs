@@ -6,15 +6,17 @@ mod backup;
 mod data;
 mod error;
 mod hfd;
+mod keys_in;
 mod profile;
 mod transport;
 
-pub use backup::{Backup, SavedLighting, backups_dir};
+pub use backup::{Backup, Colors, SavedLighting, backups_dir};
 pub use data::{
     ActuationLimits, Board, Capabilities, Key, Layout, LightMode, LightingInfo, Registry, data_dir,
 };
 pub use error::{Error, Result};
 pub use hfd::Hfd;
+pub use keys_in::KeyPresses;
 pub use profile::{BUILTINS, EffectSpec, PRESETS, Profile, is_builtin_name, profiles_dir};
 pub use transport::{HidTransport, Transport};
 
@@ -38,6 +40,11 @@ pub trait Keyboard: Send {
     fn validate_actuation(&self, indices: &[usize], setting: Actuation) -> Result<()>;
     /// Read-modify-write `setting` onto the physical keys in `indices`.
     fn set_actuation(&mut self, indices: &[usize], setting: Actuation) -> Result<()>;
+
+    /// The per-key colours stored on the board (shown in lighting mode 20).
+    fn custom_leds(&mut self) -> Result<[[u8; 3]; KEY_SLOTS]>;
+    /// Store per-key colours, verified by read-back. Doesn't change the mode.
+    fn set_custom_leds(&mut self, colors: &[[u8; 3]; KEY_SLOTS]) -> Result<()>;
 
     /// Switch to custom mode for host-streamed effects.
     fn stream_begin(&mut self) -> Result<()>;

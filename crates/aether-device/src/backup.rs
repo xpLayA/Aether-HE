@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use aether_proto::{ActTable, Lighting};
+use aether_proto::{ActTable, KEY_SLOTS, LED_TABLE_SIZE, Lighting, led_table, parse_led_table};
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Keyboard, Result};
@@ -24,6 +24,23 @@ pub struct Backup {
     pub lighting: SavedLighting,
     /// The whole actuation table, hex.
     pub actuation: String,
+    /// Stored per-key colours (0x14 table, hex), on boards that keep them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_leds: Option<String>,
+}
+
+pub type Colors = [[u8; 3]; KEY_SLOTS];
+
+pub(crate) fn colors_hex(c: &Colors) -> String {
+    hex(&led_table(c))
+}
+
+pub(crate) fn colors_from_hex(s: &str) -> Result<Colors> {
+    let b = unhex(s)?;
+    if b.len() != LED_TABLE_SIZE {
+        return Err(Error::Data(format!("per-key colour table is {} bytes, expected {LED_TABLE_SIZE}", b.len())));
+    }
+    Ok(parse_led_table(&b))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -69,13 +86,22 @@ impl Backup {
     pub fn capture(kb: &mut dyn Keyboard) -> Result<Backup> {
         let lighting = kb.lighting()?.into();
         let table = kb.actuation_table()?;
+        let custom_leds = match kb.board().capabilities.per_key_store {
+            true => Some(colors_hex(&kb.custom_leds()?)),
+            false => None,
+        };
         Ok(Backup {
             format: 1,
             created_unix: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
             board: kb.board().slug.clone(),
             lighting,
             actuation: hex(&table.0),
+            custom_leds,
         })
+    }
+
+    pub fn custom_led_colors(&self) -> Result<Option<Colors>> {
+        self.custom_leds.as_deref().map(colors_from_hex).transpose()
     }
 
     pub fn actuation_table(&self) -> Result<ActTable> {
@@ -118,6 +144,7 @@ impl Backup {
         let text = std::fs::read_to_string(path)?;
         let b: Backup = serde_json::from_str(&text).map_err(|e| Error::Data(format!("{}: {e}", path.display())))?;
         b.actuation_table()?; // validate now, not halfway through a restore
+        b.custom_led_colors()?;
         Ok(b)
     }
 
@@ -131,6 +158,9 @@ impl Backup {
             )));
         }
         let table = self.actuation_table()?;
+        if let Some(c) = self.custom_led_colors()?.filter(|_| kb.board().capabilities.per_key_store) {
+            kb.set_custom_leds(&c)?;
+        }
         kb.set_lighting(&self.lighting.into())?;
         write_verified(kb, &table)
     }
@@ -223,11 +253,15 @@ mod tests {
         assert_eq!(Backup::load(&path).unwrap(), b);
 
         kb.set_actuation(&[34], Actuation::Fixed { travel_mm: 2.0 }).unwrap();
+        let mut leds = kb.custom_leds().unwrap();
+        leds[3] = [9, 9, 9];
+        kb.set_custom_leds(&leds).unwrap();
         let static_mode = Lighting { mode: 1, ..kb.lighting().unwrap() };
         kb.set_lighting(&static_mode).unwrap();
         b.restore(&mut kb).unwrap();
         assert_eq!(Backup::capture(&mut kb).unwrap().actuation, b.actuation);
         assert_eq!(SavedLighting::from(kb.lighting().unwrap()), b.lighting);
+        assert_eq!(kb.custom_leds().unwrap()[3], [0; 3], "per-key colours restored too");
         std::fs::remove_dir_all(dir).ok();
     }
 }

@@ -26,6 +26,15 @@ before first use on a local Linux machine. **Result: no malware, backdoor, or da
 - Boards without a decoded protocol get `drivers.base.NullDriver`. Every write raises, so no board
   ever receives another board's frames.
 
+## Key presses for reactive effects (2026-10-21)
+- `aether-device/src/keys_in.rs` reads the board's own keyboard collections (usage page 1, usage 6)
+  while a reactive effect (ripple, splash, …) runs, to know which key went down. It only reads, never
+  writes, and only opens this board's interfaces (VID/PID match), never other keyboards.
+- Only "layout key index N went down" leaves the module; usages, timing and order are not logged, stored
+  or sent anywhere, and the reader stops (threads joined) when the effect stops.
+- Access comes from the existing `70-aether.rules` uaccess rule (all hidraw nodes of 38A6:2729). The rule
+  grants the seat user the same keystrokes the desktop already receives from that keyboard.
+
 ## Residual trust notes
 - Pulling future upstream commits means trusting upstream again. Re-run this audit on large merges.
 - `requirements.txt` uses lower-bound pins (`>=`). Consider a lock file for reproducible installs.

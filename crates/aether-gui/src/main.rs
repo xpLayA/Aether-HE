@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use aether_device::{Backup, Board, EffectSpec, Layout, PRESETS, Profile, backups_dir, profiles_dir};
+use aether_device::{Backup, Board, Colors, EffectSpec, Layout, PRESETS, Profile, backups_dir, profiles_dir};
 use aether_effects::Kind;
-use aether_proto::{ActTable, Actuation, DeviceInfo, Lighting, raw_to_mm};
+use aether_proto::{ActTable, Actuation, DeviceInfo, LIGHT_MODE_CUSTOM, Lighting, raw_to_mm};
 use serde::{Deserialize, Serialize};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use firmware_sim::Sim;
@@ -145,6 +145,9 @@ struct State {
     lighting: Option<Lighting>,
     light_form: Option<Lighting>,
     color_touched: bool,
+    /// Per-key colours stored on the board, and the painted ones (mode 20).
+    leds: Option<Colors>,
+    leds_form: Option<Colors>,
     table: Option<ActTable>,
     running: Option<EffectSpec>,
     fx: EffectSpec,
@@ -242,6 +245,8 @@ impl State {
             lighting: None,
             light_form: None,
             color_touched: false,
+            leds: None,
+            leds_form: None,
             table: None,
             running: None,
             fx: saved.fx,
@@ -381,6 +386,10 @@ impl State {
                     self.light_form = Some(l);
                     self.color_touched = false;
                 }
+                Event::CustomLeds(c) => {
+                    self.leds = Some(*c);
+                    self.leds_form = Some(*c);
+                }
                 Event::Actuation(t) => {
                     self.table = Some(t);
                     self.resolve_active();
@@ -496,12 +505,18 @@ impl State {
             return;
         };
         let page = g.get_page();
+        let painting = page == P_LIGHTING && self.painting();
         let live = match page {
             P_EFFECTS => self.worker.live.lock().ok().and_then(|f| *f),
+            P_LIGHTING if painting => self.leds_form,
             P_LIGHTING => self.sim_frame,
             _ => None,
         };
-        g.set_keys_badge(if live.is_some() && page == P_LIGHTING { "Simulation".into() } else { "".into() });
+        g.set_keys_badge(match (live.is_some() && page == P_LIGHTING, painting) {
+            (true, true) => "Per-key colours".into(),
+            (true, false) => "Simulation".into(),
+            _ => "".into(),
+        });
         let (ox, oy) = self.origin;
         let keys: Vec<KeyCap> = layout
             .keys
@@ -608,7 +623,8 @@ impl State {
         g.set_light_speed(l.speed as f32);
         g.set_brightness_max(info.brightness_max as f32);
         g.set_speed_max(info.speed_max as f32);
-        g.set_light_dirty(self.lighting != Some(l));
+        g.set_light_dirty(self.light_dirty());
+        g.set_light_custom(self.painting());
         g.set_live_preview(self.live_preview);
         g.set_previewing(self.previewing);
         g.set_simulate(self.simulate);
@@ -623,6 +639,7 @@ impl State {
         g.set_fx_speed(self.fx.speed);
         g.set_fx_brightness(self.fx.brightness);
         g.set_fx_direction(self.fx.direction as i32);
+        g.set_fx_reactive(Kind::from_name(&self.fx.kind).is_some_and(|k| k.reactive()));
     }
 
     fn push_actuation(&self, ui: &AppWindow) {
@@ -709,6 +726,29 @@ impl State {
         g.set_confirm_action(action.into());
     }
 
+    /// The lighting form is on the per-key mode of a board that stores colours.
+    fn painting(&self) -> bool {
+        self.light_form.is_some_and(|l| l.mode == LIGHT_MODE_CUSTOM) && self.leds_form.is_some()
+    }
+
+    fn light_dirty(&self) -> bool {
+        self.lighting != self.light_form || self.leds != self.leds_form
+    }
+
+    fn paint(&mut self, how: &str, color: [u8; 3]) -> Option<[u8; 3]> {
+        let keys: Vec<usize> = match how {
+            "all" => self.up()?.1.keys.iter().map(|k| k.index).collect(),
+            _ => self.selected.iter().copied().collect(),
+        };
+        let leds = self.leds_form.as_mut()?;
+        match how {
+            "pick" => return keys.first().map(|&i| leds[i]),
+            "erase" => keys.iter().for_each(|&i| leds[i] = [0; 3]),
+            _ => keys.iter().for_each(|&i| leds[i] = color),
+        }
+        None
+    }
+
     // ---- UI -> state ----
 
     fn sync_fx_from_ui(&mut self, ui: &AppWindow) {
@@ -733,7 +773,7 @@ impl State {
             l.color_mode = 0;
         }
         self.light_form = Some(l);
-        g.set_light_dirty(self.lighting != Some(l));
+        g.set_light_dirty(self.light_dirty());
         if self.live_preview {
             self.preview_pending = true;
         }
@@ -874,6 +914,10 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         if let (Some(i), Some(sim)) = (hit, s.sim.as_mut()) {
             sim.press(i);
         }
+        if let Some(i) = hit.filter(|_| ui.global::<UiState>().get_page() == P_EFFECTS && s.running.is_some()) {
+            // Not `send`: a press shouldn't flash the busy spinner.
+            s.worker.send(Cmd::Press(i));
+        }
         match hit {
             Some(i) if add => {
                 if !s.selected.remove(&i) {
@@ -997,13 +1041,21 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
         s.light_from_ui(&ui);
         s.preview_pending = false;
         if let Some(l) = s.light_form {
-            s.send_edit(Cmd::SetLighting(l), None);
+            let leds = s.leds_form.filter(|_| s.painting() && s.leds != s.leds_form).map(Box::new);
+            s.send_edit(Cmd::SetLighting(l, leds), None);
         }
     });
     on!(on_light_revert, |s, ui| {
         s.cancel_preview();
         s.light_form = s.lighting;
+        s.leds_form = s.leds;
         s.color_touched = false;
+    });
+    on!(on_light_paint, |s, ui, how: SharedString| {
+        let g = ui.global::<UiState>();
+        if let Some(c) = s.paint(how.as_str(), to_rgb(g.get_light_color())) {
+            g.set_light_color(rgb(c));
+        }
     });
     on!(on_light_sim_toggled, |s, ui, on: bool| {
         s.simulate = on;

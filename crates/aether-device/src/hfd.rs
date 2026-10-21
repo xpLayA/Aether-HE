@@ -6,9 +6,9 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use aether_proto::{
-    ACT_TABLE_SIZE, ActTable, Actuation, DeviceInfo, Frame, KEY_SLOTS, LEVEL_MAX, LIGHT_MODE_CUSTOM,
-    Lighting, actuation_reads, assemble, device_info_reads, led_table, light_read, match_reply, mm_to_raw,
-    stream_clear, stream_frames,
+    ACT_TABLE_SIZE, ActTable, Actuation, DeviceInfo, Frame, KEY_SLOTS, LED_TABLE_SIZE, LEVEL_MAX,
+    LIGHT_MODE_CUSTOM, Lighting, actuation_reads, assemble, custom_led_reads, custom_led_writes, device_info_reads,
+    led_table, light_read, match_reply, mm_to_raw, parse_led_table, stream_clear, stream_frames,
 };
 
 use crate::{Board, Error, Keyboard, Layout, Result, Transport};
@@ -180,6 +180,24 @@ impl<T: Transport> Keyboard for Hfd<T> {
         Ok(())
     }
 
+    fn custom_leds(&mut self) -> Result<[[u8; 3]; KEY_SLOTS]> {
+        self.require(self.board.capabilities.per_key_store, "stored per-key colours")?;
+        Ok(parse_led_table(&self.read_table(&custom_led_reads(), LED_TABLE_SIZE)?))
+    }
+
+    fn set_custom_leds(&mut self, colors: &[[u8; 3]; KEY_SLOTS]) -> Result<()> {
+        self.require(self.board.capabilities.per_key_store, "stored per-key colours")?;
+        for f in custom_led_writes(&led_table(colors)) {
+            self.t.write(&f)?;
+            sleep(WRITE_GAP);
+        }
+        sleep(Duration::from_millis(50));
+        if self.custom_leds()? != *colors {
+            return Err(Error::BadReply("per-key colour read-back does not match what was written".into()));
+        }
+        Ok(())
+    }
+
     fn stream_begin(&mut self) -> Result<()> {
         self.require(self.board.capabilities.host_effects, "host effects")?;
         // The vendor's own custom-mode entry, as in Mini60Driver.begin_host_stream.
@@ -218,6 +236,7 @@ pub(crate) mod tests {
     #[derive(Default)]
     pub struct FakeBoard {
         pub act: Vec<u8>,
+        pub leds: Vec<u8>,
         pub light: [u8; 16],
         pub sent: Vec<u8>,
         pub replies: VecDeque<Vec<u8>>,
@@ -227,7 +246,7 @@ pub(crate) mod tests {
 
     impl FakeBoard {
         pub fn new() -> FakeBoard {
-            FakeBoard { act: vec![0; ACT_TABLE_SIZE], light: [11, 255, 255, 255, 0, 0, 0, 0, 1, 5, 3, 0, 0, 0, 0, 0], ..Default::default() }
+            FakeBoard { act: vec![0; ACT_TABLE_SIZE], leds: vec![0; LED_TABLE_SIZE], light: [11, 255, 255, 255, 0, 0, 0, 0, 1, 5, 3, 0, 0, 0, 0, 0], ..Default::default() }
         }
     }
 
@@ -243,6 +262,11 @@ pub(crate) mod tests {
                 Cmd::DeviceInfo => rep[12..16].copy_from_slice(&[0xA6, 0x38, 0x29, 0x27]),
                 Cmd::LightRead => rep[8..24].copy_from_slice(&self.light),
                 Cmd::ActuationRead => rep[8..8 + PAGE].copy_from_slice(&self.act[off..off + PAGE]),
+                Cmd::CustomLedRead => rep[8..8 + PAGE].copy_from_slice(&self.leds[off..off + PAGE]),
+                Cmd::CustomLedWrite => {
+                    self.leds[off..off + len].copy_from_slice(&f[8..8 + len]);
+                    return Ok(());
+                }
                 Cmd::ActuationWrite => {
                     self.act[off..off + len].copy_from_slice(&f[8..8 + len]);
                     return Ok(());
@@ -331,6 +355,17 @@ pub(crate) mod tests {
         kb.set_actuation(&[34], Actuation::RapidTrigger { travel_mm: top, press_mm: rt_top, release_mm: 0.01 }).unwrap();
         let r = kb.actuation_table().unwrap().record(34);
         assert_eq!((r.trip, r.press, r.release), (340, 340, 1));
+    }
+
+    #[test]
+    fn custom_leds_store_and_verify() {
+        let mut kb = f75(FakeBoard::new());
+        let mut c = kb.custom_leds().unwrap();
+        assert!(c.iter().all(|x| *x == [0; 3]));
+        c[34] = [255, 0, 80];
+        kb.set_custom_leds(&c).unwrap();
+        assert_eq!(kb.custom_leds().unwrap()[34], [255, 0, 80]);
+        assert_eq!(kb.t.leds[34 * 4], 34, "record carries its key index");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use aether_proto::{ActTable, Actuation};
 use serde::{Deserialize, Serialize};
 
-use crate::backup::{SavedLighting, hex, unhex, write_verified};
+use crate::backup::{Colors, SavedLighting, colors_from_hex, colors_hex, hex, unhex, write_verified};
 use crate::{Backup, Error, Keyboard, Layout, Result};
 
 /// One-click actuation settings, used by the GUI buttons and the built-in profiles.
@@ -49,6 +49,9 @@ pub struct Profile {
     pub actuation: String,
     #[serde(default)]
     pub effect: Option<EffectSpec>,
+    /// Stored per-key colours (lighting mode 20), hex; written with the lighting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_leds: Option<String>,
     /// Generated from [`BUILTINS`], never saved, can't be edited.
     #[serde(skip)]
     pub builtin: bool,
@@ -87,14 +90,28 @@ impl Profile {
             lighting,
             actuation: hex(&table.0),
             effect,
+            custom_leds: None,
             builtin: false,
         }
+    }
+
+    pub fn with_custom_leds(self, c: Option<&Colors>) -> Profile {
+        Profile { custom_leds: c.map(colors_hex), ..self }
+    }
+
+    pub fn custom_led_colors(&self) -> Result<Option<Colors>> {
+        self.custom_leds.as_deref().map(colors_from_hex).transpose()
     }
 
     /// The board's current lighting and actuation under `name`.
     pub fn capture(kb: &mut dyn Keyboard, name: &str) -> Result<Profile> {
         let b = Backup::capture(kb)?;
-        Ok(Profile { lighting: Some(b.lighting), actuation: b.actuation, ..Profile::new(name, &b.board, None, &ActTable::default(), None) })
+        Ok(Profile {
+            lighting: Some(b.lighting),
+            actuation: b.actuation,
+            custom_leds: b.custom_leds,
+            ..Profile::new(name, &b.board, None, &ActTable::default(), None)
+        })
     }
 
     /// `setting` on every key of `layout`, lighting untouched.
@@ -124,7 +141,11 @@ impl Profile {
             return Err(Error::Invalid(format!("profile {:?} is for {}, connected board is {}", self.name, self.board, kb.board().slug)));
         }
         let table = self.actuation_table()?;
+        let leds = self.custom_led_colors()?;
         let backup = Backup::snapshot(kb)?;
+        if let Some(c) = leds.filter(|_| self.lighting.is_some() && kb.board().capabilities.per_key_store) {
+            kb.set_custom_leds(&c)?;
+        }
         if let Some(l) = self.lighting {
             kb.set_lighting(&l.into())?;
         }
@@ -199,6 +220,7 @@ impl Profile {
         let text = std::fs::read_to_string(path)?;
         let p: Profile = serde_json::from_str(&text).map_err(|e| Error::Data(format!("{}: {e}", path.display())))?;
         p.actuation_table()?;
+        p.custom_led_colors()?;
         Ok(p)
     }
 

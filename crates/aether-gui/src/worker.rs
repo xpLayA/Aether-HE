@@ -11,14 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use aether_device::{Backup, Board, EffectSpec, Keyboard, Layout, Profile};
+use aether_device::{Backup, Board, Colors, EffectSpec, KeyPresses, Keyboard, Layout, Profile};
 use aether_effects::{Direction, Engine, Frame, KeyPos, Kind, Params};
 use aether_proto::{ActTable, Actuation, DeviceInfo, Lighting};
 
 pub enum Cmd {
     Connect,
     ReadLighting,
-    SetLighting(Lighting),
+    /// Firmware lighting, and per-key colours to store first (mode 20).
+    SetLighting(Lighting, Option<Box<Colors>>),
     /// Show `Lighting` on the keyboard without saving or backing up.
     PreviewLighting(Lighting),
     /// Put back the lighting that was active before previewing started.
@@ -27,6 +28,8 @@ pub enum Cmd {
     SetActuation { keys: Vec<usize>, setting: Actuation },
     StartEffect(EffectSpec),
     StopEffect,
+    /// A key clicked on screen, for reactive effects.
+    Press(usize),
     Backup,
     Restore(PathBuf),
     /// Capture the board (lighting, actuation, running effect) into the
@@ -40,6 +43,8 @@ pub enum Event {
     Connected { board: Board, layout: Layout, info: DeviceInfo },
     Disconnected(String),
     Lighting(Lighting),
+    /// The per-key colours stored on the board.
+    CustomLeds(Box<Colors>),
     Actuation(ActTable),
     EffectRunning(Option<EffectSpec>),
     Previewing(bool),
@@ -104,6 +109,8 @@ struct Running {
     t0: Instant,
     next: Instant,
     interval: Duration,
+    /// Presses on the keyboard, for reactive effects.
+    keys: Option<KeyPresses>,
 }
 
 struct State {
@@ -205,6 +212,15 @@ impl State {
         let r = self.kb().and_then(|kb| kb.lighting());
         match r {
             Ok(l) => self.emit(Event::Lighting(l)),
+            Err(e) => return self.report::<()>(Err(e), |_| None),
+        }
+        let r = self.kb().and_then(|kb| match kb.board().capabilities.per_key_store {
+            true => kb.custom_leds().map(Some),
+            false => Ok(None),
+        });
+        match r {
+            Ok(Some(c)) => self.emit(Event::CustomLeds(Box::new(c))),
+            Ok(None) => {}
             Err(e) => self.report::<()>(Err(e), |_| None),
         }
     }
@@ -235,7 +251,7 @@ impl State {
             Cmd::Connect => self.connect(),
             Cmd::ReadLighting => self.read_lighting(),
             Cmd::ReadActuation => self.read_actuation(),
-            Cmd::SetLighting(l) => {
+            Cmd::SetLighting(l, leds) => {
                 // Choosing firmware lighting ends a host effect for good.
                 let base = self.preview_base.take();
                 let r = self.stop_effect().and_then(|_| {
@@ -247,6 +263,9 @@ impl State {
                         backup.lighting = b.into();
                     }
                     backup.save_in(&aether_device::backups_dir()?)?;
+                    if let Some(c) = leds {
+                        kb.set_custom_leds(&c)?;
+                    }
                     kb.set_lighting(&l)
                 });
                 if base.is_some() {
@@ -295,6 +314,11 @@ impl State {
             Cmd::StopEffect => {
                 let r = self.stop_effect();
                 self.report(r, |_| Some("Effect stopped, lighting restored".into()));
+            }
+            Cmd::Press(idx) => {
+                if let Some(r) = self.effect.as_mut() {
+                    r.engine.press(idx);
+                }
             }
             Cmd::Backup => {
                 let r = self.paused(Backup::snapshot);
@@ -355,7 +379,11 @@ impl State {
             None => kb.lighting()?,
         };
         let table = kb.actuation_table()?;
-        Ok(Profile::new(name, &kb.board().slug, Some(lighting.into()), &table, effect))
+        let leds = match kb.board().capabilities.per_key_store {
+            true => Some(kb.custom_leds()?),
+            false => None,
+        };
+        Ok(Profile::new(name, &kb.board().slug, Some(lighting.into()), &table, effect).with_custom_leds(leds.as_ref()))
     }
 
     fn start_effect(&mut self, spec: EffectSpec) -> R<()> {
@@ -364,15 +392,27 @@ impl State {
         let keys: Vec<KeyPos> =
             kb.layout().keys.iter().map(|k| KeyPos { index: k.index, x: k.x + k.width / 2.0, y: k.y + k.height / 2.0 }).collect();
         let saved = kb.lighting()?;
+        let params = spec_to_params(&spec);
+        // A reactive effect without key presses still runs (clicks on screen work).
+        let presses = match params.kind.reactive().then(|| KeyPresses::open(kb.board(), kb.layout())) {
+            Some(Ok(l)) => Some(l),
+            Some(Err(e)) => {
+                let _ = self.tx.send(Event::Err(format!("can't see key presses ({e}); click keys on screen instead")));
+                None
+            }
+            None => None,
+        };
+        let kb = self.kb()?;
         kb.stream_begin()?;
         let now = Instant::now();
         self.effect = Some(Running {
-            engine: Engine::new(&keys, spec_to_params(&spec), fps),
+            engine: Engine::new(&keys, params, fps),
             spec: spec.clone(),
             saved,
             t0: now,
             next: now,
             interval: Duration::from_secs_f32(1.0 / fps),
+            keys: presses,
         });
         self.emit(Event::EffectRunning(Some(spec)));
         Ok(())
@@ -395,6 +435,11 @@ impl State {
         let now = Instant::now();
         if now < r.next {
             return;
+        }
+        if let Some(k) = &r.keys {
+            for idx in k.drain() {
+                r.engine.press(idx);
+            }
         }
         let frame = r.engine.render(now.duration_since(r.t0).as_secs_f32());
         r.next = (r.next + r.interval).max(now);

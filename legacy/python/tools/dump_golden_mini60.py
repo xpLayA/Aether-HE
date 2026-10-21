@@ -78,6 +78,7 @@ def main(path):
         "actuation_mixed_records": {str(i): list(r) for i, r in enumerate(mixed) if r},
         "stream_colors": [list(c) for c in stream_colors],
         "stream_frames": [hexf(f) for f in build_stream_frames(led_table, FL)],
+        "custom_led_writes": [hexf(f) for f in pm.build_custom_led_write_frames(led_table, FL)],
         "stream_clear": hexf(build_stream_clear(FL)),
         "dangerous_cmds": sorted(pm.DANGEROUS_CMDS),
     }

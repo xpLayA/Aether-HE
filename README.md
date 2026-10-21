@@ -32,8 +32,13 @@ with an automatic backup before every change.
   - **Live preview:** every change shows on the keyboard immediately, and nothing is saved until you
     press *Apply*.
   - **On-screen simulation:** the virtual keyboard animates a look-alike of the selected effect.
+  - **Per-key paint:** choose *Custom (per-key)*, select keys, pick a colour and paint. *Apply* stores
+    the colours on the keyboard, so they stay without the app.
 - **Host effects:** wave, breathe, aurora, comet, tide, twinkle, rain, striation and static, with your
   own palette, streamed to every key at ~28 fps while the app is open.
+  - **Reactive:** ripple (a ring spreading from the key you press), splash, cross, sparks, afterglow,
+    heatmap and lightning. They read key presses from the keyboard itself (read-only, never stored);
+    clicking keys on screen triggers them too.
 - **Actuation and rapid trigger:**
   - Per key, from 0.10 to 3.40 mm.
   - One-click presets: Competitive, Gaming, Balanced, Typing, Default.

@@ -21,7 +21,8 @@ upstream remote removed, upstream auto-updater disabled).
 crates/aether-proto    HFD frame builders/parsers, no I/O; golden-tested vs legacy/python/protocol_mini60.py
 crates/aether-device   hidraw transport (usage page 0xFF68 only), Keyboard trait, Hfd driver,
                        registry + layouts (data/), Backup, Profile, PRESETS
-crates/aether-effects  host-streamed per-key effects (wave, breathe, aurora, comet, tide, twinkle, rain, striation, static)
+crates/aether-effects  host-streamed per-key effects (wave, breathe, aurora, comet, tide, twinkle, rain, striation, static;
+                       reactive: ripple, splash, cross, sparks, afterglow, heatmap, lightning — fed by Engine::press)
 crates/aether-cli      `aether` binary
 crates/aether-gui      `aether-gui` (Slint 1.18, fluent-dark): ui/*.slint = layout only (UiState/Actions globals);
                        src/main.rs = glue; src/worker.rs owns the device (UI polls it every 33 ms)
@@ -56,13 +57,18 @@ Regenerate golden frames after changing the Python reference:
   0.01 mm, range 0.10–3.40 mm (RT 0.01–3.40). **All-zero record = firmware default** (factory state).
   Compare limits in raw 0.01 mm units (slider float error).
 - `0x32` live per-key stream (9 pages of `[idx,r,g,b]`, ~28 fps, needs mode 20), `0x36` ends it.
+- `0x14`/`0x24` stored per-key colours (same 504-byte `[idx,r,g,b]` table, shown in mode 20). `0x24`
+  verified on the F75 2026-10-21: every page acked `0x55`, `0x14` read-back byte-exact, restore exact
+  (`docs/context/f75-bringup/f75_custom_led_rt.py`). Capability `per_key_store`; in backups and profiles.
+- Key presses for reactive effects: the board's keyboard collections (if0 boot `[mods][0][6 usages]`,
+  if1 report 1 = NKRO bitmap of usages 0x00..0x77), read-only, `aether-device/src/keys_in.rs`.
 - `0x12` key table read-only so far (matches the layout; F1–F12 base records empty = default).
 - **No live key depth**: `0x66` travel-test is acked but streams nothing; the vendor's depth view uses
   calibration mode, which we never send. `0x60` untried.
 
 ## Verified status (F75 HE, 2026-10-21)
-Lighting ✔ · host effects ✔ · actuation / rapid trigger ✔ (stored and felt) · backups, profiles,
-reset-to-default ✔. Not implemented / unverified: remap, macros, SOCD, advanced keys, dead zones,
+Lighting ✔ · host effects ✔ (incl. reactive) · stored per-key colours ✔ (wire-verified) · actuation /
+rapid trigger ✔ (stored and felt) · backups, profiles, reset-to-default ✔. Not implemented / unverified: remap, macros, SOCD, advanced keys, dead zones,
 calibration, live depth, 2.4 GHz dongle.
 
 ## Data on disk

@@ -54,13 +54,16 @@ pub enum Cmd {
     CustomLedRead = 0x14,
     ActuationRead = 0x17,
     LightWrite = 0x23,
+    /// Stored per-key colours (shown in lighting mode 20). F75: acked and
+    /// read back byte-exact via 0x14, 2026-10-21.
+    CustomLedWrite = 0x24,
     ActuationWrite = 0x27,
     StreamLed = 0x32,
     ClearLed = 0x36,
 }
 
 impl Cmd {
-    pub const ALL: [Cmd; 10] = [
+    pub const ALL: [Cmd; 11] = [
         Cmd::DeviceInfo,
         Cmd::ConfigRead,
         Cmd::KeyTableRead,
@@ -68,6 +71,7 @@ impl Cmd {
         Cmd::CustomLedRead,
         Cmd::ActuationRead,
         Cmd::LightWrite,
+        Cmd::CustomLedWrite,
         Cmd::ActuationWrite,
         Cmd::StreamLed,
         Cmd::ClearLed,
@@ -452,6 +456,20 @@ pub fn led_table(colors: &[[u8; 3]; KEY_SLOTS]) -> [u8; LED_TABLE_SIZE] {
     t
 }
 
+/// Colour per key from a 0x14 table (record `i` at byte `i * 4`).
+pub fn parse_led_table(t: &[u8]) -> [[u8; 3]; KEY_SLOTS] {
+    let mut c = [[0u8; 3]; KEY_SLOTS];
+    for (i, rec) in t.chunks_exact(LED_RECORD_SIZE).take(KEY_SLOTS).enumerate() {
+        c[i] = [rec[1], rec[2], rec[3]];
+    }
+    c
+}
+
+/// The stored per-key table write (9 x 0x24), kept in flash; shown in mode 20.
+pub fn custom_led_writes(table: &[u8; LED_TABLE_SIZE]) -> Vec<Frame> {
+    paged_writes(Cmd::CustomLedWrite, table)
+}
+
 /// One live host-effect frame (9 x 0x32). Shown only while the board is in
 /// custom mode (lighting mode 20); nothing is stored in flash.
 pub fn stream_frames(table: &[u8; LED_TABLE_SIZE]) -> Vec<Frame> {
@@ -466,6 +484,26 @@ pub fn stream_clear() -> Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_led_table_round_trips_through_its_writes() {
+        let mut colors = [[0u8; 3]; KEY_SLOTS];
+        colors[0] = [255, 0, 0];
+        colors[125] = [1, 2, 3];
+        let table = led_table(&colors);
+        let frames = custom_led_writes(&table);
+        assert_eq!(frames.len(), 9);
+        let mut back = [0u8; LED_TABLE_SIZE];
+        for (n, f) in frames.iter().enumerate() {
+            assert_eq!(guard(f), Ok(Cmd::CustomLedWrite));
+            assert_eq!(f[6], u8::from(n == 8), "last-chunk flag only on the last page");
+            let mut rep = *f;
+            rep[0] = REPLY_MAGIC;
+            assemble(&mut back, &rep);
+        }
+        assert_eq!(back, table);
+        assert_eq!(parse_led_table(&back), colors);
+    }
 
     #[test]
     fn dangerous_commands_are_unrepresentable_and_refused() {
