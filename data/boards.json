@@ -14,7 +14,8 @@
         "host_effects": true,
         "actuation": true,
         "rapid_trigger": true,
-        "per_key_store": true
+        "per_key_store": true,
+        "advanced_keys": true
       },
       "lighting": {
         "brightness_max": 5,

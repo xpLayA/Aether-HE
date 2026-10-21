@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use aether_proto::{ActTable, KEY_SLOTS, LED_TABLE_SIZE, Lighting, led_table, parse_led_table};
+use aether_proto::{ActTable, DksTable, KEY_SLOTS, KeyTable, LED_TABLE_SIZE, Lighting, led_table, parse_led_table};
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Keyboard, Result};
@@ -27,6 +27,47 @@ pub struct Backup {
     /// Stored per-key colours (0x14 table, hex), on boards that keep them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_leds: Option<String>,
+    /// Key records and DKS table (hex), on boards with advanced keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dks: Option<String>,
+}
+
+/// Key records and DKS table, hex, as stored in backups and profiles.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyTables {
+    pub keys: KeyTable,
+    pub dks: DksTable,
+}
+
+impl KeyTables {
+    pub fn read(kb: &mut dyn Keyboard) -> Result<Option<KeyTables>> {
+        if !kb.board().capabilities.advanced_keys {
+            return Ok(None);
+        }
+        Ok(Some(KeyTables { keys: kb.key_table()?, dks: kb.dks_table()? }))
+    }
+
+    pub fn to_hex(o: Option<&KeyTables>) -> (Option<String>, Option<String>) {
+        (o.map(|t| hex(&t.keys.0)), o.map(|t| hex(&t.dks.0)))
+    }
+
+    pub fn from_hex(keys: Option<&str>, dks: Option<&str>) -> Result<Option<KeyTables>> {
+        match (keys, dks) {
+            (Some(k), Some(d)) => Ok(Some(KeyTables {
+                keys: KeyTable::from_slice(&unhex(k)?)?,
+                dks: DksTable::from_slice(&unhex(d)?)?,
+            })),
+            _ => Ok(None),
+        }
+    }
+
+    /// DKS first, then the key records that point into it (vendor order).
+    pub fn write(&self, kb: &mut dyn Keyboard) -> Result<()> {
+        kb.write_dks_table(&self.dks)?;
+        kb.write_key_table(&self.keys)
+    }
 }
 
 pub type Colors = [[u8; 3]; KEY_SLOTS];
@@ -90,6 +131,7 @@ impl Backup {
             true => Some(colors_hex(&kb.custom_leds()?)),
             false => None,
         };
+        let (keys, dks) = KeyTables::to_hex(KeyTables::read(kb)?.as_ref());
         Ok(Backup {
             format: 1,
             created_unix: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
@@ -97,7 +139,24 @@ impl Backup {
             lighting,
             actuation: hex(&table.0),
             custom_leds,
+            keys,
+            dks,
         })
+    }
+
+    pub fn key_tables(&self) -> Result<Option<KeyTables>> {
+        KeyTables::from_hex(self.keys.as_deref(), self.dks.as_deref())
+    }
+
+    /// The key table before Aether changed any key: from the oldest backup
+    /// that has one (every change backs up first).
+    pub fn original_key_table(board: &str) -> Result<Option<KeyTable>> {
+        for (_, p) in list_in(&backups_dir()?, board) {
+            if let Some(t) = Backup::load(&p)?.key_tables()? {
+                return Ok(Some(t.keys));
+            }
+        }
+        Ok(None)
     }
 
     pub fn custom_led_colors(&self) -> Result<Option<Colors>> {
@@ -145,6 +204,7 @@ impl Backup {
         let b: Backup = serde_json::from_str(&text).map_err(|e| Error::Data(format!("{}: {e}", path.display())))?;
         b.actuation_table()?; // validate now, not halfway through a restore
         b.custom_led_colors()?;
+        b.key_tables()?;
         Ok(b)
     }
 
@@ -158,8 +218,12 @@ impl Backup {
             )));
         }
         let table = self.actuation_table()?;
+        let tables = self.key_tables()?.filter(|_| kb.board().capabilities.advanced_keys);
         if let Some(c) = self.custom_led_colors()?.filter(|_| kb.board().capabilities.per_key_store) {
             kb.set_custom_leds(&c)?;
+        }
+        if let Some(t) = tables {
+            t.write(kb)?;
         }
         kb.set_lighting(&self.lighting.into())?;
         write_verified(kb, &table)
@@ -256,12 +320,16 @@ mod tests {
         let mut leds = kb.custom_leds().unwrap();
         leds[3] = [9, 9, 9];
         kb.set_custom_leds(&leds).unwrap();
+        let mut keys = kb.key_table().unwrap();
+        keys.set(12, aether_proto::KeyAction::Toggle);
+        kb.write_key_table(&keys).unwrap();
         let static_mode = Lighting { mode: 1, ..kb.lighting().unwrap() };
         kb.set_lighting(&static_mode).unwrap();
         b.restore(&mut kb).unwrap();
         assert_eq!(Backup::capture(&mut kb).unwrap().actuation, b.actuation);
         assert_eq!(SavedLighting::from(kb.lighting().unwrap()), b.lighting);
         assert_eq!(kb.custom_leds().unwrap()[3], [0; 3], "per-key colours restored too");
+        assert_eq!(kb.key_table().unwrap().action(12), aether_proto::KeyAction::None, "and key records");
         std::fs::remove_dir_all(dir).ok();
     }
 }

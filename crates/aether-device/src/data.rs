@@ -63,6 +63,8 @@ pub struct Capabilities {
     pub rapid_trigger: bool,
     /// Per-key colours stored on the board (0x14/0x24, lighting mode 20).
     pub per_key_store: bool,
+    /// Key records (0x12/0x22) and the DKS table (0x18/0x28): DKS, MT, TGL, SOCD, RS.
+    pub advanced_keys: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

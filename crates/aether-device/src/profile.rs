@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use aether_proto::{ActTable, Actuation};
 use serde::{Deserialize, Serialize};
 
-use crate::backup::{Colors, SavedLighting, colors_from_hex, colors_hex, hex, unhex, write_verified};
+use crate::backup::{Colors, KeyTables, SavedLighting, colors_from_hex, colors_hex, hex, unhex, write_verified};
 use crate::{Backup, Error, Keyboard, Layout, Result};
 
 /// One-click actuation settings, used by the GUI buttons and the built-in profiles.
@@ -52,6 +52,11 @@ pub struct Profile {
     /// Stored per-key colours (lighting mode 20), hex; written with the lighting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_leds: Option<String>,
+    /// Key records and DKS table (advanced keys), hex. Both or neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dks: Option<String>,
     /// Generated from [`BUILTINS`], never saved, can't be edited.
     #[serde(skip)]
     pub builtin: bool,
@@ -91,6 +96,8 @@ impl Profile {
             actuation: hex(&table.0),
             effect,
             custom_leds: None,
+            keys: None,
+            dks: None,
             builtin: false,
         }
     }
@@ -103,6 +110,15 @@ impl Profile {
         self.custom_leds.as_deref().map(colors_from_hex).transpose()
     }
 
+    pub fn with_key_tables(self, t: Option<&KeyTables>) -> Profile {
+        let (keys, dks) = KeyTables::to_hex(t);
+        Profile { keys, dks, ..self }
+    }
+
+    pub fn key_tables(&self) -> Result<Option<KeyTables>> {
+        KeyTables::from_hex(self.keys.as_deref(), self.dks.as_deref())
+    }
+
     /// The board's current lighting and actuation under `name`.
     pub fn capture(kb: &mut dyn Keyboard, name: &str) -> Result<Profile> {
         let b = Backup::capture(kb)?;
@@ -110,6 +126,8 @@ impl Profile {
             lighting: Some(b.lighting),
             actuation: b.actuation,
             custom_leds: b.custom_leds,
+            keys: b.keys,
+            dks: b.dks,
             ..Profile::new(name, &b.board, None, &ActTable::default(), None)
         })
     }
@@ -142,7 +160,11 @@ impl Profile {
         }
         let table = self.actuation_table()?;
         let leds = self.custom_led_colors()?;
+        let tables = self.key_tables()?.filter(|_| kb.board().capabilities.advanced_keys);
         let backup = Backup::snapshot(kb)?;
+        if let Some(t) = tables {
+            t.write(kb)?;
+        }
         if let Some(c) = leds.filter(|_| self.lighting.is_some() && kb.board().capabilities.per_key_store) {
             kb.set_custom_leds(&c)?;
         }
@@ -221,6 +243,7 @@ impl Profile {
         let p: Profile = serde_json::from_str(&text).map_err(|e| Error::Data(format!("{}: {e}", path.display())))?;
         p.actuation_table()?;
         p.custom_led_colors()?;
+        p.key_tables()?;
         Ok(p)
     }
 

@@ -105,6 +105,37 @@ fn stream_frames_match_python() {
 }
 
 #[test]
+fn key_and_dks_tables_match_python() {
+    let g = golden();
+    let mut keys = KeyTable([0; KEY_TABLE_SIZE]);
+    keys.set(0, KeyAction::Key { mods: 0, usage: 0x29 });
+    keys.set(12, KeyAction::Toggle);
+    keys.set(34, KeyAction::Dks { slot: 0 });
+    keys.set(48, KeyAction::ModTap { tap: 0x39, hold: 0xE0, delay_ms: 250 });
+    for i in [49, 51] {
+        keys.set(i, KeyAction::Socd { mode: SocdMode::LastInput, a: 0x04, b: 0x07 });
+    }
+    for i in [33, 35] {
+        keys.set(i, KeyAction::Rs { a: 0x14, b: 0x08 });
+    }
+    frames_eq(&keys.write_frames().unwrap(), &g["key_table_writes"]);
+    let mut dks = DksTable::default();
+    dks.set_slot(0, DksSlot::new(1.6, 3.0, [0x1A, 0, 0, 0], [1, 1, 1, 1]));
+    frames_eq(&dks.write_frames(), &g["dks_writes"]);
+    frames_eq(&dks_reads(), &g["dks_reads"]);
+}
+
+#[test]
+fn f75_factory_key_table_parses() {
+    let k = KeyTable::from_slice(&unhex(f75_backup()["key_table"].as_str().unwrap())).unwrap();
+    assert_eq!(k.action(0), KeyAction::Key { mods: 0, usage: 0x29 }, "Esc");
+    assert_eq!(k.action(34), KeyAction::Key { mods: 0, usage: 0x1A }, "W");
+    assert!((1..=12).all(|i| k.action(i) == KeyAction::None), "F1-F12 base records empty");
+    assert!((0..KEY_SLOTS).all(|i| !k.action(i).is_advanced()));
+    assert!(k.write_frames().is_ok(), "tail is zero");
+}
+
+#[test]
 fn dangerous_list_matches_python() {
     let theirs: Vec<u8> =
         golden()["dangerous_cmds"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u8).collect();

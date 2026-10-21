@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use aether_device::{BUILTINS, Backup, KeyPresses, Keyboard, PRESETS, Profile, Registry, backups_dir, open_first, profiles_dir};
+use aether_device::{Advanced, BUILTINS, Backup, KeyPresses, Keyboard, PRESETS, plan_advanced, usage_for_code, Profile, Registry, backups_dir, open_first, profiles_dir};
 use aether_effects::{Direction, Engine, KeyPos, Kind, Params};
-use aether_proto::{Actuation, Lighting, raw_to_mm};
+use aether_proto::{Actuation, DksSlot, DksTable, KeyAction, Lighting, SocdMode, raw_to_mm};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 
@@ -48,9 +48,13 @@ enum Cmd {
     /// Saved setups (lighting + actuation, optionally an effect for the GUI).
     #[command(subcommand)]
     Profile(ProfileCmd),
+    /// Advanced keys: DKS, mod-tap, toggle, SOCD, rapid snap (RS).
+    #[command(subcommand)]
+    Keys(KeysCmd),
     /// Run a host-driven effect until Ctrl+C (or --seconds), then restore the lighting.
     Effect {
-        /// wave, breathe, aurora, comet, tide, twinkle, rain, striation, static
+        /// wave, breathe, aurora, comet, tide, twinkle, rain, striation, static;
+        /// reactive: ripple, splash, cross, sparks, afterglow, heatmap, lightning
         name: String,
         /// Comma-separated hex colours, e.g. ff0000,00ff00,0000ff
         #[arg(long)]
@@ -113,6 +117,51 @@ enum ActCmd {
         /// Comma-separated key names, or `all`.
         #[arg(long, default_value = "all")]
         keys: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum KeysCmd {
+    /// Show the keys that have an advanced function.
+    List,
+    /// Back to an ordinary key (a pair's other key too).
+    Off { key: String },
+    /// Toggle: press once to hold the key down, again to release.
+    Tgl { key: String },
+    /// Mod-tap: tap sends TAP, holding longer than --ms sends HOLD.
+    Mt {
+        key: String,
+        #[arg(long)]
+        tap: String,
+        #[arg(long)]
+        hold: String,
+        /// 10..1000 ms, in steps of 10
+        #[arg(long, default_value_t = 200)]
+        ms: u16,
+    },
+    /// Rapid snap: of the two keys, the one pressed deeper wins.
+    Rs { key1: String, key2: String },
+    /// SOCD: what holding both keys sends.
+    Socd {
+        key1: String,
+        key2: String,
+        /// last, key1, key2 or neutral
+        #[arg(long, default_value = "last")]
+        mode: String,
+    },
+    /// Dynamic keystroke: up to four keys sent at press / bottom-out / release points.
+    Dks {
+        key: String,
+        /// press point in mm
+        #[arg(long, default_value_t = 1.0)]
+        press: f64,
+        /// bottom-out point in mm
+        #[arg(long, default_value_t = 3.0)]
+        bottom: f64,
+        /// KEY:pbrr — one letter per point (press, bottom-out, release from bottom, full release):
+        /// t = tap, h = hold, - = nothing. E.g. --act W:t--t --act Space:-t--. Up to four.
+        #[arg(long = "act", required = true)]
+        acts: Vec<String>,
     },
 }
 
@@ -225,6 +274,7 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Light(c) => light(c)?,
         Cmd::Actuation(c) => actuation(c)?,
         Cmd::Profile(c) => profile(c)?,
+        Cmd::Keys(c) => keys(c)?,
         Cmd::Effect { name, colors, speed, brightness, direction, seconds } => {
             let kind = Kind::from_name(&name).ok_or_else(|| anyhow!("unknown effect {name:?}"))?;
             let direction = match direction.as_str() {
@@ -395,6 +445,120 @@ fn profile(c: ProfileCmd) -> Result<()> {
             println!("deleted {name:?}");
         }
     }
+    Ok(())
+}
+
+fn usage_of(kb: &dyn Keyboard, name: &str) -> Result<u8> {
+    let k = kb.layout().find(name).ok_or_else(|| anyhow!("no key named {name:?}"))?;
+    usage_for_code(&k.code).ok_or_else(|| anyhow!("{} can't be sent by another key", k.name))
+}
+
+fn one_key(kb: &dyn Keyboard, name: &str) -> Result<usize> {
+    kb.layout().find(name).map(|k| k.index).ok_or_else(|| anyhow!("no key named {name:?}"))
+}
+
+/// One line describing a key's record, with key names for usages.
+fn describe(kb: &dyn Keyboard, a: KeyAction, dks: &DksTable) -> String {
+    let name = |u: u8| {
+        kb.layout().keys.iter().find(|k| usage_for_code(&k.code) == Some(u)).map_or(format!("usage {u:#04x}"), |k| k.name.clone())
+    };
+    match a {
+        KeyAction::Toggle => "toggle".into(),
+        KeyAction::ModTap { tap, hold, delay_ms } => format!("mod-tap: tap {}, hold {} after {delay_ms} ms", name(tap), name(hold)),
+        KeyAction::Rs { a, b } => format!("rapid snap {} + {}", name(a), name(b)),
+        KeyAction::Socd { mode, a, b } => format!("SOCD {} + {}: {}", name(a), name(b), mode.label()),
+        KeyAction::Dks { slot } => {
+            let s = dks.slot(slot as usize);
+            let acts: Vec<String> = (0..4)
+                .filter(|&i| s.actions[i] != 0)
+                .map(|i| {
+                    let pts: String = s.masks.iter().map(|m| if m & (1 << i) != 0 { 't' } else if m & (0x10 << i) != 0 { 'h' } else { '-' }).collect();
+                    format!("{}:{pts}", name(s.actions[i]))
+                })
+                .collect();
+            format!("DKS slot {slot}, press {:.1} / bottom {:.1} mm, {}", s.points[0] as f64 / 10.0, s.points[1] as f64 / 10.0, acts.join(" "))
+        }
+        other => format!("{other:?}"),
+    }
+}
+
+fn keys(c: KeysCmd) -> Result<()> {
+    let mut kb = connect()?;
+    if !kb.board().capabilities.advanced_keys {
+        bail!("advanced keys are not verified on {}", kb.board().name);
+    }
+    let (table, dks) = (kb.key_table()?, kb.dks_table()?);
+    let adv = match c {
+        KeysCmd::List => {
+            let mut any = false;
+            for k in &kb.layout().keys {
+                let a = table.action(k.index);
+                if a.is_advanced() {
+                    any = true;
+                    println!("{:<10} {}", k.name, describe(kb.as_ref(), a, &dks));
+                }
+            }
+            if !any {
+                println!("no advanced keys set");
+            }
+            return Ok(());
+        }
+        KeysCmd::Off { ref key } => (one_key(kb.as_ref(), key)?, Advanced::Off),
+        KeysCmd::Tgl { ref key } => (one_key(kb.as_ref(), key)?, Advanced::Toggle),
+        KeysCmd::Mt { ref key, ref tap, ref hold, ms } => (
+            one_key(kb.as_ref(), key)?,
+            Advanced::ModTap { tap: usage_of(kb.as_ref(), tap)?, hold: usage_of(kb.as_ref(), hold)?, delay_ms: ms },
+        ),
+        KeysCmd::Rs { ref key1, ref key2 } => (one_key(kb.as_ref(), key1)?, Advanced::Rs { partner: one_key(kb.as_ref(), key2)? }),
+        KeysCmd::Socd { ref key1, ref key2, ref mode } => {
+            let mode = match mode.to_lowercase().as_str() {
+                "last" => SocdMode::LastInput,
+                "key1" => SocdMode::Key1,
+                "key2" => SocdMode::Key2,
+                "neutral" => SocdMode::Neutral,
+                m => bail!("unknown SOCD mode {m:?} (last, key1, key2, neutral)"),
+            };
+            (one_key(kb.as_ref(), key1)?, Advanced::Socd { partner: one_key(kb.as_ref(), key2)?, mode })
+        }
+        KeysCmd::Dks { ref key, press, bottom, ref acts } => {
+            if acts.len() > 4 {
+                bail!("at most four --act");
+            }
+            let (mut actions, mut masks) = ([0u8; 4], [0u8; 4]);
+            for (i, a) in acts.iter().enumerate() {
+                let (k, pts) = a.rsplit_once(':').ok_or_else(|| anyhow!("--act {a:?}: expected KEY:pbrr"))?;
+                if pts.chars().count() != 4 {
+                    bail!("--act {a:?}: give one of t/h/- for each of the four points");
+                }
+                actions[i] = usage_of(kb.as_ref(), k)?;
+                for (p, ch) in pts.chars().enumerate() {
+                    masks[p] |= match ch {
+                        't' => 1 << i,
+                        'h' => 0x10 << i,
+                        '-' => 0,
+                        c => bail!("--act {a:?}: {c:?} is not t, h or -"),
+                    };
+                }
+            }
+            (one_key(kb.as_ref(), key)?, Advanced::Dks(DksSlot::new(press, bottom, actions, masks)))
+        }
+    };
+    let (idx, adv) = adv;
+    let slug = kb.board().slug.clone();
+    let original = Backup::original_key_table(&slug)?.unwrap_or_else(|| table.clone());
+    let layout = kb.layout().clone();
+    let (new_keys, new_dks) = plan_advanced(&table, &dks, &layout, &original, idx, adv)?;
+    backup_first(kb.as_mut())?;
+    if new_dks != dks {
+        kb.write_dks_table(&new_dks)?;
+    }
+    kb.write_key_table(&new_keys)?;
+    let name = layout.key(idx).map_or(String::new(), |k| k.name.clone());
+    let what = match new_keys.action(idx) {
+        a if a.is_advanced() => describe(kb.as_ref(), a, &new_dks),
+        _ => "an ordinary key".into(),
+    };
+    println!("{name} is now {what} (verified by read-back)");
     Ok(())
 }
 

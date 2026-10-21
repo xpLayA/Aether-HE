@@ -2,6 +2,7 @@
 //! transport, per-protocol drivers behind the [`Keyboard`] trait, and
 //! backup/restore of the board's settings.
 
+mod advanced;
 mod backup;
 mod data;
 mod error;
@@ -10,17 +11,18 @@ mod keys_in;
 mod profile;
 mod transport;
 
-pub use backup::{Backup, Colors, SavedLighting, backups_dir};
+pub use advanced::{Advanced, plan_advanced};
+pub use backup::{Backup, Colors, KeyTables, SavedLighting, backups_dir};
 pub use data::{
     ActuationLimits, Board, Capabilities, Key, Layout, LightMode, LightingInfo, Registry, data_dir,
 };
 pub use error::{Error, Result};
 pub use hfd::Hfd;
-pub use keys_in::KeyPresses;
+pub use keys_in::{KeyPresses, usage_for_code};
 pub use profile::{BUILTINS, EffectSpec, PRESETS, Profile, is_builtin_name, profiles_dir};
 pub use transport::{HidTransport, Transport};
 
-use aether_proto::{ActTable, Actuation, DeviceInfo, KEY_SLOTS, Lighting};
+use aether_proto::{ActTable, Actuation, DeviceInfo, DksTable, KEY_SLOTS, KeyTable, Lighting};
 
 /// Everything the apps can do to a board. One implementation per protocol
 /// family; boards without one are never opened.
@@ -45,6 +47,14 @@ pub trait Keyboard: Send {
     fn custom_leds(&mut self) -> Result<[[u8; 3]; KEY_SLOTS]>;
     /// Store per-key colours, verified by read-back. Doesn't change the mode.
     fn set_custom_leds(&mut self, colors: &[[u8; 3]; KEY_SLOTS]) -> Result<()>;
+
+    /// Every key's record (remaps and advanced keys).
+    fn key_table(&mut self) -> Result<KeyTable>;
+    /// Write the whole key table, verified by read-back.
+    fn write_key_table(&mut self, t: &KeyTable) -> Result<()>;
+    fn dks_table(&mut self) -> Result<DksTable>;
+    /// Write the whole DKS table, verified by read-back.
+    fn write_dks_table(&mut self, t: &DksTable) -> Result<()>;
 
     /// Switch to custom mode for host-streamed effects.
     fn stream_begin(&mut self) -> Result<()>;

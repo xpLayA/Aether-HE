@@ -6,7 +6,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use aether_proto::{
-    ACT_TABLE_SIZE, ActTable, Actuation, DeviceInfo, Frame, KEY_SLOTS, LED_TABLE_SIZE, LEVEL_MAX,
+    ACT_TABLE_SIZE, ActTable, Actuation, DKS_TABLE_SIZE, DeviceInfo, DksTable, Frame, KEY_SLOTS, KEY_TABLE_SIZE,
+    KeyTable, LED_TABLE_SIZE, LEVEL_MAX, dks_reads, key_table_reads,
     LIGHT_MODE_CUSTOM, Lighting, actuation_reads, assemble, custom_led_reads, custom_led_writes, device_info_reads,
     led_table, light_read, match_reply, mm_to_raw, parse_led_table, stream_clear, stream_frames,
 };
@@ -198,6 +199,42 @@ impl<T: Transport> Keyboard for Hfd<T> {
         Ok(())
     }
 
+    fn key_table(&mut self) -> Result<KeyTable> {
+        self.require(self.board.capabilities.advanced_keys, "key records")?;
+        Ok(KeyTable::from_slice(&self.read_table(&key_table_reads(), KEY_TABLE_SIZE)?)?)
+    }
+
+    fn write_key_table(&mut self, t: &KeyTable) -> Result<()> {
+        self.require(self.board.capabilities.advanced_keys, "key records")?;
+        for f in t.write_frames()? {
+            self.t.write(&f)?;
+            sleep(WRITE_GAP);
+        }
+        sleep(Duration::from_millis(50));
+        if self.key_table()? != *t {
+            return Err(Error::BadReply("key table read-back does not match what was written".into()));
+        }
+        Ok(())
+    }
+
+    fn dks_table(&mut self) -> Result<DksTable> {
+        self.require(self.board.capabilities.advanced_keys, "DKS")?;
+        Ok(DksTable::from_slice(&self.read_table(&dks_reads(), DKS_TABLE_SIZE)?)?)
+    }
+
+    fn write_dks_table(&mut self, t: &DksTable) -> Result<()> {
+        self.require(self.board.capabilities.advanced_keys, "DKS")?;
+        for f in t.write_frames() {
+            self.t.write(&f)?;
+            sleep(WRITE_GAP);
+        }
+        sleep(Duration::from_millis(50));
+        if self.dks_table()? != *t {
+            return Err(Error::BadReply("DKS table read-back does not match what was written".into()));
+        }
+        Ok(())
+    }
+
     fn stream_begin(&mut self) -> Result<()> {
         self.require(self.board.capabilities.host_effects, "host effects")?;
         // The vendor's own custom-mode entry, as in Mini60Driver.begin_host_stream.
@@ -237,6 +274,8 @@ pub(crate) mod tests {
     pub struct FakeBoard {
         pub act: Vec<u8>,
         pub leds: Vec<u8>,
+        pub keys: Vec<u8>,
+        pub dks: Vec<u8>,
         pub light: [u8; 16],
         pub sent: Vec<u8>,
         pub replies: VecDeque<Vec<u8>>,
@@ -246,7 +285,7 @@ pub(crate) mod tests {
 
     impl FakeBoard {
         pub fn new() -> FakeBoard {
-            FakeBoard { act: vec![0; ACT_TABLE_SIZE], leds: vec![0; LED_TABLE_SIZE], light: [11, 255, 255, 255, 0, 0, 0, 0, 1, 5, 3, 0, 0, 0, 0, 0], ..Default::default() }
+            FakeBoard { act: vec![0; ACT_TABLE_SIZE], leds: vec![0; LED_TABLE_SIZE], keys: factory_keys(), dks: vec![0; DKS_TABLE_SIZE], light: [11, 255, 255, 255, 0, 0, 0, 0, 1, 5, 3, 0, 0, 0, 0, 0], ..Default::default() }
         }
     }
 
@@ -263,6 +302,16 @@ pub(crate) mod tests {
                 Cmd::LightRead => rep[8..24].copy_from_slice(&self.light),
                 Cmd::ActuationRead => rep[8..8 + PAGE].copy_from_slice(&self.act[off..off + PAGE]),
                 Cmd::CustomLedRead => rep[8..8 + PAGE].copy_from_slice(&self.leds[off..off + PAGE]),
+                Cmd::KeyTableRead => rep[8..8 + len].copy_from_slice(&self.keys[off..off + len]),
+                Cmd::DksRead => rep[8..8 + len].copy_from_slice(&self.dks[off..off + len]),
+                Cmd::KeyTableWrite => {
+                    self.keys[off..off + len].copy_from_slice(&f[8..8 + len]);
+                    return Ok(());
+                }
+                Cmd::DksWrite => {
+                    self.dks[off..off + len].copy_from_slice(&f[8..8 + len]);
+                    return Ok(());
+                }
                 Cmd::CustomLedWrite => {
                     self.leds[off..off + len].copy_from_slice(&f[8..8 + len]);
                     return Ok(());
@@ -286,6 +335,14 @@ pub(crate) mod tests {
         fn read(&mut self, _timeout_ms: i32) -> Result<Vec<u8>> {
             Ok(self.replies.pop_front().unwrap_or_default())
         }
+    }
+
+    /// The key table read from a factory-state F75.
+    pub fn factory_keys() -> Vec<u8> {
+        let text = include_str!("../../../fixtures/f75/backup.json");
+        let v: serde_json::Value = serde_json::from_str(text).unwrap();
+        let h = v["key_table"].as_str().unwrap();
+        (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect()
     }
 
     pub fn f75(fake: FakeBoard) -> Hfd<FakeBoard> {

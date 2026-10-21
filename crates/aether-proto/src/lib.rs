@@ -13,6 +13,9 @@
 
 use std::fmt;
 
+mod keys;
+pub use keys::*;
+
 pub const FRAME_LEN: usize = 64;
 pub const PAYLOAD_START: usize = 8;
 /// Payload bytes per frame: the paging stride for every table.
@@ -53,26 +56,34 @@ pub enum Cmd {
     LightRead = 0x13,
     CustomLedRead = 0x14,
     ActuationRead = 0x17,
+    /// 1024-byte DKS table. Read and written back byte-exact on the F75, 2026-10-21.
+    DksRead = 0x18,
+    /// Key records (remap and advanced keys), records 0..125. F75-verified 2026-10-21.
+    KeyTableWrite = 0x22,
     LightWrite = 0x23,
     /// Stored per-key colours (shown in lighting mode 20). F75: acked and
     /// read back byte-exact via 0x14, 2026-10-21.
     CustomLedWrite = 0x24,
     ActuationWrite = 0x27,
+    DksWrite = 0x28,
     StreamLed = 0x32,
     ClearLed = 0x36,
 }
 
 impl Cmd {
-    pub const ALL: [Cmd; 11] = [
+    pub const ALL: [Cmd; 14] = [
         Cmd::DeviceInfo,
         Cmd::ConfigRead,
         Cmd::KeyTableRead,
         Cmd::LightRead,
         Cmd::CustomLedRead,
         Cmd::ActuationRead,
+        Cmd::DksRead,
+        Cmd::KeyTableWrite,
         Cmd::LightWrite,
         Cmd::CustomLedWrite,
         Cmd::ActuationWrite,
+        Cmd::DksWrite,
         Cmd::StreamLed,
         Cmd::ClearLed,
     ];
@@ -156,7 +167,7 @@ fn header(cmd: Cmd, len: usize, offset: usize, last: bool) -> Frame {
     f
 }
 
-fn paged_reads(cmd: Cmd, size: usize) -> Vec<Frame> {
+pub(crate) fn paged_reads(cmd: Cmd, size: usize) -> Vec<Frame> {
     (0..size)
         .step_by(PAGE)
         .map(|off| {
@@ -166,7 +177,7 @@ fn paged_reads(cmd: Cmd, size: usize) -> Vec<Frame> {
         .collect()
 }
 
-fn paged_writes(cmd: Cmd, data: &[u8]) -> Vec<Frame> {
+pub(crate) fn paged_writes(cmd: Cmd, data: &[u8]) -> Vec<Frame> {
     (0..data.len())
         .step_by(PAGE)
         .map(|off| {
@@ -520,8 +531,8 @@ mod tests {
     fn guard_rejects_unknown_and_malformed() {
         let mut f = [0u8; FRAME_LEN];
         f[0] = MAGIC;
-        f[1] = 0x22; // key-table write: real, but not enabled for this board yet
-        assert_eq!(guard(&f), Err(ProtoError::Unknown(0x22)));
+        f[1] = 0x25; // macro write: real, but not verified on any board yet
+        assert_eq!(guard(&f), Err(ProtoError::Unknown(0x25)));
         f[0] = 0x00;
         assert_eq!(guard(&f), Err(ProtoError::BadMagic(0)));
         assert!(matches!(guard(&f[..10]), Err(ProtoError::BadLength { .. })));

@@ -25,3 +25,10 @@ offered for this board. Not tried: `0x60 GET_MAGNETIC_AXIS_KEY_STATUS` (never re
 the original table back and restored the exact lighting block (both verified). Before-state:
 `custom_led_before.json`. Nobody watched the keys during the hold,
 so the visible result is unconfirmed; the GUI's paint + Apply is the visual check.
+
+## Key table + DKS probe (2026-10-21): 0x22 / 0x18 / 0x28 work
+`docs/context/f75-bringup/f75_keytable_rt.py`: every page of every write acked (`55 22`/`55 28`) and read
+back byte-exact for: a no-op 0x22, TGL on F12, MT on F12 (tap F12 / hold F11 / 250 ms), RS and SOCD
+(mode 3) on the F11+F12 pair, a no-op 0x28, and DKS slot 0 bound to F12 (0x28 then 0x22). Both original
+tables restored exactly. Before-state: `keytable_before.json` (identical to `backup.json`'s key table),
+`dks_before.json` (all zero). Key-table tail bytes 504..511 read zero. Feel not yet tested.
