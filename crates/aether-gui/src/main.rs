@@ -44,6 +44,10 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     ui.global::<UiState>().set_page(page);
+    // AETHER_SCROLL=600 starts the page scrolled down (screenshots of small windows).
+    if let Some(px) = std::env::var("AETHER_SCROLL").ok().and_then(|v| v.parse::<f32>().ok()) {
+        ui.global::<UiState>().set_start_scroll(px);
+    }
 
     let state = Rc::new(RefCell::new(State::new(saved)));
     state.borrow_mut().reload_profiles();
@@ -167,6 +171,25 @@ fn rgb(c: [u8; 3]) -> Color {
 
 fn to_rgb(c: Color) -> [u8; 3] {
     [c.red(), c.green(), c.blue()]
+}
+
+fn to_hex(c: Color) -> String {
+    format!("#{:02X}{:02X}{:02X}", c.red(), c.green(), c.blue())
+}
+
+/// "#ff3d9a", "FF3D9A", "#f0a" -> colour; anything else -> None.
+fn parse_hex(s: &str) -> Option<[u8; 3]> {
+    let h = s.trim().trim_start_matches('#');
+    if !h.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let full = match h.len() {
+        3 => h.chars().flat_map(|c| [c, c]).collect::<String>(),
+        6 => h.to_string(),
+        _ => return None,
+    };
+    let v = u32::from_str_radix(&full, 16).ok()?;
+    Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
 }
 
 fn cap(s: &str) -> String {
@@ -735,6 +758,9 @@ impl State {
 /// pushes the UI back in sync.
 fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     let a = ui.global::<Actions>();
+    a.on_to_hex(|c| to_hex(c).into());
+    // Transparent means "not a colour"; the picker checks alpha.
+    a.on_parse_hex(|s| parse_hex(&s).map_or(Color::from_argb_u8(0, 0, 0, 0), rgb));
     macro_rules! on {
         ($setter:ident, |$s:ident, $ui:ident $(, $arg:ident : $t:ty)*| $body:block) => {{
             let (st, weak) = (state.clone(), ui.as_weak());
@@ -1025,4 +1051,20 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     on!(on_confirm_no, |s, ui| {
         s.confirm = None;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_round_trip_and_tolerant_parsing() {
+        assert_eq!(parse_hex("#ff3d9a"), Some([0xFF, 0x3D, 0x9A]));
+        assert_eq!(parse_hex("FF3D9A"), Some([0xFF, 0x3D, 0x9A]));
+        assert_eq!(parse_hex("  #f0a "), Some([0xFF, 0x00, 0xAA]));
+        for bad in ["", "#", "#12345", "#gg0000", "red", "#1234567"] {
+            assert_eq!(parse_hex(bad), None, "{bad:?}");
+        }
+        assert_eq!(to_hex(rgb([255, 61, 154])), "#FF3D9A");
+    }
 }

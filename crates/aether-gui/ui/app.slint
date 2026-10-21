@@ -4,8 +4,8 @@ import "../assets/inter-400.ttf";
 import "../assets/inter-600.ttf";
 
 import { Theme } from "theme.slint";
-import { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow } from "state.slint";
-import { Btn, Chip, Toast, Dialog, ToastItem } from "widgets.slint";
+import { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, ToastItem } from "state.slint";
+import { Btn, Chip, Toast, Dialog } from "widgets.slint";
 import { Icon } from "icons.slint";
 import { ProfilesPage, LightingPage, EffectsPage, ActuationPage, LivePage, BackupsPage, DevicePage } from "pages.slint";
 import { ScrollView, Spinner } from "std-widgets.slint";
@@ -212,6 +212,13 @@ export component AppWindow inherits Window {
             sv := ScrollView {
                 content-width: self.visible-width;
                 content-height: content.preferred-height;
+                property <bool> jumped;
+                // Once the page has laid out, jump to the requested offset (screenshots).
+                Timer {
+                    interval: 400ms;
+                    running: UiState.start-scroll > 0 && !sv.jumped;
+                    triggered => { sv.content-y = -UiState.start-scroll; sv.jumped = true; }
+                }
                 content := VerticalLayout {
                     width: sv.visible-width;
                     padding: 28px;

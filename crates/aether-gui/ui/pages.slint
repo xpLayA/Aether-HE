@@ -2,7 +2,7 @@
 
 import { Theme } from "theme.slint";
 import { UiState, Actions, ProfileCard } from "state.slint";
-import { Btn, Card, Chip, Segmented, Toggle, ValueSlider, Row, Swatch, ColorEdit, TextField } from "widgets.slint";
+import { Btn, Card, Chip, Segmented, Toggle, ValueSlider, Row, Swatch, ColorPicker, TextField } from "widgets.slint";
 import { KeyboardCard } from "keyboard.slint";
 import { ComboBox, AboutSlint } from "std-widgets.slint";
 
@@ -180,7 +180,7 @@ export component LightingPage inherits VerticalLayout {
         }
         if UiState.light-color-ok: Row {
             label: "Colour";
-            ColorEdit { color <=> UiState.light-color; edited => { Actions.light-edited(); } }
+            ColorPicker { color <=> UiState.light-color; edited => { Actions.light-edited(); } }
         }
         if !UiState.light-color-ok: Row {
             label: "Colour";
@@ -249,14 +249,30 @@ export component EffectsPage inherits VerticalLayout {
         }
         if UiState.fx-edit >= 0: Row {
             label: "Edit colour";
-            ColorEdit {
+            ColorPicker {
                 color <=> UiState.fx-edit-color;
                 edited(c) => { Actions.fx-set-color(UiState.fx-edit, c); }
             }
         }
         Row {
             label: "Background";
-            ColorEdit { color <=> UiState.fx-bg; }
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: start;
+                Swatch {
+                    swatch: UiState.fx-bg;
+                    selected: UiState.fx-bg-open;
+                    clicked => { UiState.fx-bg-open = !UiState.fx-bg-open; }
+                }
+                Text {
+                    text: UiState.fx-bg-open ? "Click the swatch to close" : "Colour behind the effect";
+                    color: Theme.muted; vertical-alignment: center; font-size: Theme.font-small;
+                }
+            }
+        }
+        if UiState.fx-bg-open: Row {
+            label: "";
+            ColorPicker { color <=> UiState.fx-bg; }
         }
         Row { label: "Speed"; ValueSlider { minimum: 0; maximum: 1; step: 0.01; show-value: false; value <=> UiState.fx-speed; } }
         Row { label: "Brightness"; ValueSlider { minimum: 0; maximum: 1; step: 0.01; show-value: false; value <=> UiState.fx-brightness; } }

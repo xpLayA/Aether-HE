@@ -1,7 +1,10 @@
 // Shared UI state (set from Rust) and actions (handled in Rust).
 // Pages bind to these globals instead of threading properties through.
 
-import { ToastItem } from "widgets.slint";
+export struct ToastItem {
+    text: string,
+    error: bool,
+}
 
 export struct KeyCap {
     index: int,
@@ -42,6 +45,8 @@ export struct InfoRow {
 export global UiState {
     // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 live, 5 backups, 6 device
     in-out property <int> page;
+    // Initial scroll offset (AETHER_SCROLL, for screenshots).
+    in property <length> start-scroll;
     // 0 connecting, 1 connected, 2 no keyboard
     in property <int> connection;
     in property <string> board-name;
@@ -93,6 +98,7 @@ export global UiState {
     in-out property <int> fx-edit: -1;
     in-out property <color> fx-edit-color;
     in-out property <color> fx-bg;
+    in-out property <bool> fx-bg-open;
     in-out property <float> fx-speed;
     in-out property <float> fx-brightness;
     in-out property <int> fx-direction;
@@ -167,6 +173,10 @@ export global Actions {
     callback backup-restore(int);
     callback backup-original();
     callback open-dir(string);
+
+    // Hex helpers (Slint has no hex formatting); parse-hex returns transparent when invalid.
+    pure callback to-hex(color) -> string;
+    pure callback parse-hex(string) -> color;
 
     callback confirm-yes();
     callback confirm-no();

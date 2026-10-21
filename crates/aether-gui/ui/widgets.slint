@@ -3,6 +3,7 @@
 
 import { Theme } from "theme.slint";
 import { LineEdit } from "std-widgets.slint";
+import { Actions, ToastItem } from "state.slint";
 
 // kind: "primary" | "secondary" | "ghost" | "danger"
 export component Btn inherits Rectangle {
@@ -256,58 +257,147 @@ export component Swatch inherits Rectangle {
     TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
-// Hex + RGB colour editor with a few presets (Slint has no colour picker).
-export component ColorEdit inherits VerticalLayout {
+// HSV colour picker: saturation/brightness square, hue bar, hex field and
+// quick swatches. Keeps its own h/s/v so the hue survives dragging to grey.
+export component ColorPicker inherits VerticalLayout {
     in-out property <color> color;
     callback edited(color);
     property <[color]> presets: [#ff0000, #ff7a00, #ffd400, #3ddc84, #00c8ff, #3a6dff, #a855f7, #ff3d9a, #ffffff];
-    spacing: 10px;
+    property <float> h;
+    property <float> s;
+    property <float> v;
+    property <bool> hex-bad;
+
+    function sync() {
+        let c = root.color.to-hsv();
+        root.h = c.hue;
+        root.s = c.saturation;
+        root.v = c.value;
+    }
+    function commit() {
+        root.color = hsv(root.h, root.s, root.v);
+        if (!hex.has-focus) { hex.text = Actions.to-hex(root.color); }
+        root.edited(root.color);
+    }
+    init => {
+        self.sync();
+        hex.text = Actions.to-hex(root.color);
+    }
+    changed color => {
+        // Changed from outside (profile, revert, swatch): follow it.
+        if (root.color != hsv(root.h, root.s, root.v)) {
+            self.sync();
+            if (!hex.has-focus) { hex.text = Actions.to-hex(root.color); }
+        }
+    }
+
+    spacing: 12px;
+    HorizontalLayout {
+        spacing: 14px;
+        sv := Rectangle {
+            height: 150px;
+            min-width: 200px;
+            horizontal-stretch: 1;
+            border-radius: 10px;
+            clip: true;
+            background: hsv(root.h, 1, 1);
+            Rectangle { background: @linear-gradient(90deg, #ffffff 0%, #ffffff00 100%); }
+            Rectangle { background: @linear-gradient(0deg, #000000 0%, #00000000 100%); }
+            Rectangle {
+                x: root.s * parent.width - self.width / 2;
+                y: (1 - root.v) * parent.height - self.height / 2;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: #ffffff;
+                background: root.color;
+                drop-shadow-blur: 4px;
+                drop-shadow-color: #000000a0;
+            }
+            sva := TouchArea {
+                mouse-cursor: crosshair;
+                function pick() {
+                    root.s = max(0, min(1, self.mouse-x / self.width));
+                    root.v = 1 - max(0, min(1, self.mouse-y / self.height));
+                    root.commit();
+                }
+                pointer-event(e) => { if (e.kind == PointerEventKind.down) { self.pick(); } }
+                moved => { if (self.pressed) { self.pick(); } }
+            }
+        }
+        VerticalLayout {
+            width: 128px;
+            spacing: 10px;
+            Rectangle {
+                height: 72px;
+                border-radius: 10px;
+                background: root.color;
+                border-width: 1px;
+                border-color: #ffffff26;
+            }
+            hex := LineEdit {
+                height: 34px;
+                font-size: 13px;
+                edited(t) => {
+                    let c = Actions.parse-hex(t);
+                    root.hex-bad = c.alpha == 0;
+                    if (!root.hex-bad) {
+                        root.color = c;
+                        root.sync-from-hex();
+                    }
+                }
+                accepted => { self.text = Actions.to-hex(root.color); root.hex-bad = false; }
+            }
+            if root.hex-bad: Text { text: "Use #RRGGBB"; color: Theme.danger; font-size: 11px; }
+        }
+    }
+    function sync-from-hex() {
+        self.sync();
+        root.edited(root.color);
+    }
+    hue := Rectangle {
+        height: 16px;
+        border-radius: 8px;
+        background: @linear-gradient(90deg, #ff0000 0%, #ffff00 16.67%, #00ff00 33.33%, #00ffff 50%, #0000ff 66.67%, #ff00ff 83.33%, #ff0000 100%);
+        Rectangle {
+            x: root.h / 360 * (parent.width - self.width);
+            y: -2px;
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            border-width: 3px;
+            border-color: #ffffff;
+            background: hsv(root.h, 1, 1);
+            drop-shadow-blur: 4px;
+            drop-shadow-color: #000000a0;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            function pick() {
+                root.h = max(0, min(359.9, self.mouse-x / self.width * 360));
+                root.commit();
+            }
+            pointer-event(e) => { if (e.kind == PointerEventKind.down) { self.pick(); } }
+            moved => { if (self.pressed) { self.pick(); } }
+        }
+    }
     HorizontalLayout {
         spacing: 8px;
         alignment: start;
-        Rectangle {
-            width: 56px;
-            height: 30px;
-            border-radius: 8px;
-            background: root.color;
-            border-width: 1px;
-            border-color: #ffffff30;
-        }
         for c in root.presets: Swatch {
             swatch: c;
+            width: 26px;
+            height: 26px;
             selected: c == root.color;
-            clicked => { root.color = c; root.edited(c); }
-        }
-    }
-    HorizontalLayout {
-        spacing: 12px;
-        for ch[i] in ["R", "G", "B"]: HorizontalLayout {
-            spacing: 6px;
-            horizontal-stretch: 1;
-            Text { text: ch; color: Theme.muted; vertical-alignment: center; width: 12px; }
-            ValueSlider {
-                minimum: 0;
-                maximum: 255;
-                step: 1;
-                decimals: 0;
-                badge-width: 48px;
-                min-width: 110px;
-                horizontal-stretch: 1;
-                value: i == 0 ? root.color.red : i == 1 ? root.color.green : root.color.blue;
-                changed(v) => {
-                    root.color = i == 0 ? rgb(v, root.color.green, root.color.blue)
-                        : i == 1 ? rgb(root.color.red, v, root.color.blue)
-                        : rgb(root.color.red, root.color.green, v);
-                    root.edited(root.color);
-                }
+            clicked => {
+                root.color = c;
+                root.sync();
+                hex.text = Actions.to-hex(c);
+                root.edited(c);
             }
         }
     }
-}
-
-export struct ToastItem {
-    text: string,
-    error: bool,
 }
 
 export component Toast inherits Rectangle {
