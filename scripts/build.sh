@@ -78,4 +78,5 @@ fi
 
 echo
 echo "Run the app:   ./$bin/aether-gui"
+echo "Install it:    ./scripts/install.sh   (app menu entry + udev rule; remove with ./scripts/uninstall.sh)"
 echo "Close the Aula web driver in your browser first if it is open."
