@@ -38,6 +38,12 @@ export struct BackupRow {
     file: string,
 }
 
+export struct AdvRow {
+    index: int,
+    key: string,
+    value: string,
+}
+
 export struct InfoRow {
     key: string,
     value: string,
@@ -137,7 +143,10 @@ export global UiState {
     in property <[int]> adv-dks-keys: [0, 0, 0, 0];
     // action * 4 + point: 0 nothing, 1 tap, 2 hold
     in property <[int]> adv-dks-cells;
-    in property <[InfoRow]> adv-list;
+    in property <[AdvRow]> adv-list;
+    // the selection includes keys with a function
+    in property <bool> adv-removable;
+    in property <string> adv-remove-label;
 
     // backups / device
     in property <[BackupRow]> backups;
@@ -200,6 +209,11 @@ export global Actions {
     callback adv-swap();
     callback adv-dks-key(int, int);
     callback adv-dks-cell(int, int);
+    // remove from the selected keys / from one key / from all keys
+    callback adv-remove();
+    callback adv-remove-key(int);
+    callback adv-remove-all();
+    callback adv-select(int);
 
     callback backup-now();
     callback backup-restore(int);

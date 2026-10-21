@@ -438,7 +438,7 @@ component AdvHelp inherits Text {
     color: Theme.muted;
     font-size: Theme.font-small;
     wrap: word-wrap;
-    text: kind == 0 ? "The key works normally. Select keys with a function and Apply to remove it (a pair is removed together)."
+    text: kind == 0 ? "The key works normally. To take a function off a key, click it and press Remove, or use Remove in the list below (a pair is removed together)."
         : kind == 1 ? "Dynamic keystroke: up to four keys, each tapped or held at four points of one press: going down past the press point, reaching the bottom-out point, coming back up from the bottom, and releasing fully."
         : kind == 2 ? "Mod-tap: a short tap sends one key, holding past the hold time sends another, e.g. Caps Lock: tap = Esc, hold = Ctrl."
         : kind == 3 ? "Toggle: press once and the key stays held down; press again to release it. For auto-run or holding a button."
@@ -476,7 +476,7 @@ export component KeysPage inherits VerticalLayout {
         title: "Function";
         subtitle: UiState.adv-target;
         Segmented {
-            options: ["None", "DKS", "Mod-tap", "Toggle", "Rapid snap", "SOCD"];
+            options: ["Off", "DKS", "Mod-tap", "Toggle", "Rapid snap", "SOCD"];
             current <=> UiState.adv-kind;
             changed(i) => { Actions.adv-edited(); }
         }
@@ -545,11 +545,17 @@ export component KeysPage inherits VerticalLayout {
         HorizontalLayout {
             spacing: 8px;
             alignment: start;
-            Btn {
-                text: UiState.adv-kind == 0 ? "Remove function" : "Apply to keyboard";
+            if UiState.adv-kind != 0: Btn {
+                text: "Apply to keyboard";
                 kind: "primary";
                 enabled: UiState.adv-ready && UiState.connection == 1 && !UiState.busy;
                 clicked => { Actions.adv-apply(); }
+            }
+            if UiState.adv-removable: Btn {
+                text: UiState.adv-remove-label;
+                kind: "danger";
+                enabled: UiState.connection == 1 && !UiState.busy;
+                clicked => { Actions.adv-remove(); }
             }
             Btn { text: "Re-read"; kind: "ghost"; enabled: !UiState.busy; clicked => { Actions.adv-reread(); } }
         }
@@ -559,8 +565,25 @@ export component KeysPage inherits VerticalLayout {
         if UiState.adv-list.length == 0: Text { text: "None yet."; color: Theme.muted; }
         for row in UiState.adv-list: HorizontalLayout {
             spacing: 16px;
-            Text { text: row.key; width: 110px; font-weight: 600; color: Theme.text; }
-            Text { text: row.value; color: Theme.muted; wrap: word-wrap; horizontal-stretch: 1; }
+            Rectangle {
+                width: 110px;
+                Text { x: 0; text: row.key; font-weight: 600; color: kta.has-hover ? Theme.accent : Theme.text; }
+                kta := TouchArea { mouse-cursor: pointer; clicked => { Actions.adv-select(row.index); } }
+            }
+            Text { text: row.value; color: Theme.muted; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+            Btn {
+                text: "Remove"; small: true; kind: "ghost";
+                enabled: UiState.connection == 1 && !UiState.busy;
+                clicked => { Actions.adv-remove-key(row.index); }
+            }
+        }
+        if UiState.adv-list.length > 1: HorizontalLayout {
+            alignment: start;
+            Btn {
+                text: "Remove all"; small: true; kind: "danger";
+                enabled: UiState.connection == 1 && !UiState.busy;
+                clicked => { Actions.adv-remove-all(); }
+            }
         }
     }
 }

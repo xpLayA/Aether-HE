@@ -143,6 +143,7 @@ enum Conn {
 
 enum Confirm {
     DeleteProfile(String),
+    RemoveAllAdvanced,
     Restore(PathBuf),
     ResetAll,
 }
@@ -790,11 +791,46 @@ impl State {
                 .keys
                 .iter()
                 .filter(|k| t.keys.action(k.index).is_advanced())
-                .map(|k| InfoRow { key: k.name.clone().into(), value: describe(layout, t.keys.action(k.index), &t.dks).into() })
+                .map(|k| AdvRow {
+                    index: k.index as i32,
+                    key: k.name.clone().into(),
+                    value: describe(layout, t.keys.action(k.index), &t.dks).into(),
+                })
                 .collect(),
             _ => Vec::new(),
         };
         g.set_adv_list(model(rows));
+        let removable = self.removable(self.selected.iter().copied());
+        g.set_adv_removable(!removable.is_empty());
+        let names: Vec<String> = self.selected.iter().filter(|&&i| self.is_advanced(i)).map(|&i| self.key_name(i)).collect();
+        g.set_adv_remove_label(match names.len() {
+            1 => format!("Remove from {}", names[0]),
+            n => format!("Remove from {n} keys"),
+        }
+        .into());
+    }
+
+    fn is_advanced(&self, idx: usize) -> bool {
+        self.ktab.as_ref().is_some_and(|t| t.keys.action(idx).is_advanced())
+    }
+
+    /// The keys among `keys` with a function, one per pair (clearing one
+    /// key of a pair clears both).
+    fn removable(&self, keys: impl Iterator<Item = usize>) -> Vec<usize> {
+        let Some(t) = &self.ktab else { return Vec::new() };
+        let mut out: Vec<usize> = Vec::new();
+        for i in keys.filter(|&i| t.keys.action(i).is_advanced()) {
+            if !t.keys.partner(i).is_some_and(|p| out.contains(&p)) {
+                out.push(i);
+            }
+        }
+        out
+    }
+
+    fn remove_advanced(&mut self, keys: Vec<usize>) {
+        for key in keys {
+            self.send_edit(Cmd::SetAdvanced { key, adv: Advanced::Off }, None);
+        }
     }
 
     /// Show the function of the clicked key (and select its pair partner).
@@ -899,6 +935,12 @@ impl State {
                 "Restore backup?",
                 "The keyboard's lighting and actuation go back to this backup. The current state is backed up first.".into(),
                 "Restore",
+            ),
+            Some(Confirm::RemoveAllAdvanced) => (
+                true,
+                "Remove all advanced keys?",
+                "Every key with DKS, mod-tap, toggle, rapid snap or SOCD goes back to an ordinary key. A backup is taken first.".into(),
+                "Remove all",
             ),
             Some(Confirm::ResetAll) => (
                 true,
@@ -1351,6 +1393,23 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
             *c = (*c + 1) % 3;
         }
     });
+    on!(on_adv_remove, |s, ui| {
+        let keys = s.removable(s.selected.iter().copied());
+        s.remove_advanced(keys);
+    });
+    on!(on_adv_remove_key, |s, ui, i: i32| {
+        let keys = s.removable(std::iter::once(i.max(0) as usize));
+        s.remove_advanced(keys);
+    });
+    on!(on_adv_remove_all, |s, ui| {
+        s.confirm = Some(Confirm::RemoveAllAdvanced);
+    });
+    on!(on_adv_select, |s, ui, i: i32| {
+        let i = i.max(0) as usize;
+        s.selected = BTreeSet::from([i]);
+        s.pair_swap = false;
+        s.load_adv(i, &ui.global::<UiState>());
+    });
     on!(on_adv_apply, |s, ui| {
         match s.adv_request(&ui.global::<UiState>()) {
             Ok(v) => {
@@ -1400,6 +1459,11 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
                 s.send_edit(Cmd::Restore(p), Some("Restored backup".into()));
             }
             Some(Confirm::ResetAll) => s.write_actuation(true, Actuation::Default),
+            Some(Confirm::RemoveAllAdvanced) => {
+                let all: Vec<usize> = s.up().map(|(_, l)| l.keys.iter().map(|k| k.index).collect()).unwrap_or_default();
+                let keys = s.removable(all.into_iter());
+                s.remove_advanced(keys);
+            }
             None => {}
         }
     });

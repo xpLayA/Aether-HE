@@ -4,13 +4,13 @@ import "../assets/inter-400.ttf";
 import "../assets/inter-600.ttf";
 
 import { Theme } from "theme.slint";
-import { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, ToastItem } from "state.slint";
+import { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, AdvRow, ToastItem } from "state.slint";
 import { Btn, Chip, Toast, Dialog } from "widgets.slint";
 import { Icon } from "icons.slint";
 import { ProfilesPage, LightingPage, EffectsPage, ActuationPage, KeysPage, LivePage, BackupsPage, DevicePage } from "pages.slint";
 import { ScrollView, Spinner } from "std-widgets.slint";
 
-export { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, ToastItem }
+export { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, AdvRow, ToastItem }
 
 component NavItem inherits Rectangle {
     in property <string> label;
