@@ -23,7 +23,8 @@ crates/aether-device   hidraw transport (usage page 0xFF68 only), Keyboard trait
                        registry + layouts (data/), Backup, Profile, PRESETS
 crates/aether-effects  host-streamed per-key effects (wave, breathe, aurora, comet, tide, twinkle, rain, striation, static)
 crates/aether-cli      `aether` binary
-crates/aether-gui      `aether-gui` (eframe/egui 0.37): worker.rs owns the device; theme.rs; keyboard_view.rs
+crates/aether-gui      `aether-gui` (Slint 1.18, fluent-dark): ui/*.slint = layout only (UiState/Actions globals);
+                       src/main.rs = glue; src/worker.rs owns the device (UI polls it every 33 ms)
 data/                  boards.json (Rust registry), layouts/aula-f75he.json (80 keys, vendor table `t`)
 fixtures/f75/          real F75 replies + probe notes (used by tests)
 packaging/             70-aether.rules (udev uaccess; must sort before 73-seat-late), .desktop, icon
