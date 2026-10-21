@@ -327,7 +327,7 @@ export component ColorPicker inherits VerticalLayout {
             }
         }
         VerticalLayout {
-            width: 128px;
+            width: 150px;
             spacing: 10px;
             Rectangle {
                 height: 72px;
@@ -337,6 +337,7 @@ export component ColorPicker inherits VerticalLayout {
                 border-color: #ffffff26;
             }
             hex := LineEdit {
+                width: 150px;
                 height: 34px;
                 font-size: 13px;
                 edited(t) => {
