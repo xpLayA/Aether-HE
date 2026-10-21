@@ -1,0 +1,167 @@
+// Shared UI state (set from Rust) and actions (handled in Rust).
+// Pages bind to these globals instead of threading properties through.
+
+import { ToastItem } from "widgets.slint";
+
+export struct KeyCap {
+    index: int,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    label: string,
+    value: string,
+    fill: color,
+    ink: color,
+    selected: bool,
+}
+
+export struct ProfileCard {
+    name: string,
+    actuation: string,
+    lighting: string,
+    effect: string,
+    active: bool,
+}
+
+export struct Preset {
+    name: string,
+    detail: string,
+}
+
+export struct BackupRow {
+    when: string,
+    file: string,
+}
+
+export struct InfoRow {
+    key: string,
+    value: string,
+}
+
+export global UiState {
+    // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 live, 5 backups, 6 device
+    in-out property <int> page;
+    // 0 connecting, 1 connected, 2 no keyboard
+    in property <int> connection;
+    in property <string> board-name;
+    in property <string> firmware;
+    in property <string> down-reason;
+    in property <bool> busy;
+    in property <string> effect-running;
+    in property <string> active-profile;
+    in property <int> active-profile-index: -1;
+    in property <[string]> profile-names;
+
+    // keyboard view
+    in property <[KeyCap]> keys;
+    in property <float> board-w: 1;
+    in property <float> board-h: 1;
+    in property <int> selected-count;
+    in property <string> hover-key;
+    in property <string> hover-info;
+    in property <bool> show-legend;
+
+    // profiles
+    in property <[ProfileCard]> profiles;
+    in-out property <string> new-profile-name;
+    in-out property <bool> include-effect;
+    in property <string> fx-name;
+    in-out property <string> renaming;
+    in-out property <string> rename-text;
+
+    // lighting
+    in property <[string]> light-modes;
+    in-out property <int> light-mode;
+    in-out property <color> light-color;
+    in property <bool> light-color-ok;
+    in property <bool> light-speed-ok;
+    in-out property <float> light-brightness;
+    in-out property <float> light-speed;
+    in property <float> brightness-max: 5;
+    in property <float> speed-max: 5;
+    in property <bool> light-dirty;
+
+    // effects
+    in property <[string]> fx-kinds;
+    in-out property <int> fx-kind;
+    in property <[color]> fx-palette;
+    in-out property <int> fx-edit: -1;
+    in-out property <color> fx-edit-color;
+    in-out property <color> fx-bg;
+    in-out property <float> fx-speed;
+    in-out property <float> fx-brightness;
+    in-out property <int> fx-direction;
+
+    // actuation
+    in property <[Preset]> presets;
+    in-out property <int> scope;
+    in-out property <float> travel: 1.2;
+    in-out property <bool> rt;
+    in-out property <float> press: 0.15;
+    in-out property <float> release: 0.15;
+    in property <float> travel-min: 0.1;
+    in property <float> travel-max: 3.4;
+    in property <float> rt-min: 0.01;
+    in property <float> rt-max: 3.4;
+    in property <bool> rt-ok: true;
+
+    // backups / device
+    in property <[BackupRow]> backups;
+    in property <bool> has-original;
+    in property <[InfoRow]> device-info;
+    in property <string> profiles-dir;
+    in property <string> backups-dir;
+
+    // overlays
+    in property <[ToastItem]> toasts;
+    in property <bool> confirm-open;
+    in property <string> confirm-title;
+    in property <string> confirm-body;
+    in property <string> confirm-action;
+}
+
+export global Actions {
+    callback nav(int);
+    callback reconnect();
+    callback switch-profile(string);
+
+    callback board-click(float, float, bool);
+    callback board-rect(float, float, float, float, bool);
+    callback board-hover(float, float);
+    callback board-leave();
+    callback quick-select(string);
+
+    callback profile-apply(string);
+    callback profile-action(string, string);
+    callback profile-save-new();
+    callback profile-rename-done();
+
+    callback light-mode-picked(int);
+    callback light-apply();
+    callback light-revert();
+    callback light-reread();
+    callback light-edited();
+
+    callback fx-pick(int);
+    callback fx-set-color(int, color);
+    callback fx-add-color();
+    callback fx-remove-color(int);
+    callback fx-start();
+    callback fx-stop();
+    callback fx-defaults();
+
+    callback preset(int);
+    callback act-apply();
+    callback act-reset-selected();
+    callback act-reset-all();
+    callback act-read();
+
+    callback backup-now();
+    callback backup-restore(int);
+    callback backup-original();
+    callback open-dir(string);
+
+    callback confirm-yes();
+    callback confirm-no();
+}

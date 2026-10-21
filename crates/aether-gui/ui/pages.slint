@@ -1,0 +1,411 @@
+// One component per page; layout only. State in UiState, behaviour in Actions.
+
+import { Theme } from "theme.slint";
+import { UiState, Actions, ProfileCard } from "state.slint";
+import { Btn, Card, Chip, Segmented, Toggle, ValueSlider, Row, Swatch, ColorEdit, TextField } from "widgets.slint";
+import { KeyboardCard } from "keyboard.slint";
+import { ComboBox, AboutSlint } from "std-widgets.slint";
+
+component PageTitle inherits VerticalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+    spacing: 2px;
+    Text { text: root.title; font-size: Theme.font-title; font-weight: 600; color: Theme.text; }
+    Text { text: root.subtitle; color: Theme.muted; wrap: word-wrap; }
+}
+
+component ProfileTile inherits Rectangle {
+    in property <ProfileCard> p;
+    background: Theme.surface;
+    border-radius: Theme.radius-lg;
+    border-width: p.active ? 1.5px : 1px;
+    border-color: p.active ? Theme.accent : (hov.has-hover ? Theme.border-strong : Theme.border);
+    animate border-color { duration: 140ms; }
+    hov := TouchArea { }
+    VerticalLayout {
+        padding: 18px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            height: 30px;
+            if UiState.renaming != root.p.name: Text {
+                text: root.p.name; font-size: 17px; font-weight: 600; color: Theme.text;
+                overflow: elide; vertical-alignment: center; horizontal-stretch: 1;
+            }
+            if UiState.renaming == root.p.name: TextField {
+                text <=> UiState.rename-text;
+                horizontal-stretch: 1;
+                accepted => { Actions.profile-rename-done(); }
+            }
+            if root.p.active: Chip { text: "Active"; y: (parent.height - self.height) / 2; }
+        }
+        Text { text: root.p.actuation; color: Theme.muted; font-size: 13px; overflow: elide; }
+        Text { text: root.p.lighting; color: Theme.muted; font-size: 13px; overflow: elide; }
+        Text { text: root.p.effect; color: Theme.muted; font-size: 13px; overflow: elide; }
+        Rectangle { vertical-stretch: 1; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            if UiState.renaming == root.p.name: Btn { text: "Save name"; kind: "primary"; clicked => { Actions.profile-rename-done(); } }
+            if UiState.renaming != root.p.name: Btn {
+                text: "Apply";
+                kind: "primary";
+                enabled: UiState.connection == 1 && !UiState.busy;
+                clicked => { Actions.profile-apply(root.p.name); }
+            }
+            Btn { text: "More"; kind: "ghost"; clicked => { menu.show(); } }
+        }
+    }
+    menu := PopupWindow {
+        x: 18px;
+        y: root.height - 12px;
+        width: 260px;
+        Rectangle {
+            background: Theme.surface-2;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            drop-shadow-blur: 20px;
+            drop-shadow-color: #000000a0;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                for item in [
+                    { id: "update", label: "Update from current keyboard" },
+                    { id: "effect", label: "Attach current effect settings" },
+                    { id: "noeffect", label: "Remove effect" },
+                    { id: "rename", label: "Rename" },
+                    { id: "duplicate", label: "Duplicate" },
+                    { id: "delete", label: "Delete" },
+                ]: Rectangle {
+                    height: 34px;
+                    border-radius: 8px;
+                    background: mta.has-hover ? Theme.surface-3 : transparent;
+                    Text {
+                        x: 12px;
+                        text: item.label;
+                        color: item.id == "delete" ? Theme.danger : Theme.text;
+                        font-size: 13px;
+                    }
+                    mta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Actions.profile-action(root.p.name, item.id); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ProfilesPage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Profiles"; subtitle: "Complete setups: lighting, every key's actuation and an optional effect. Applying one backs up the keyboard first."; }
+    Card {
+        title: "New profile";
+        subtitle: "Save the keyboard as it is right now.";
+        HorizontalLayout {
+            spacing: 12px;
+            TextField { placeholder-text: "Profile name"; text <=> UiState.new-profile-name; min-width: 200px; horizontal-stretch: 1; accepted => { Actions.profile-save-new(); } }
+            HorizontalLayout {
+                spacing: 8px;
+                Toggle { y: (parent.height - self.height) / 2; checked <=> UiState.include-effect; }
+                Text { text: "Include effect (" + UiState.fx-name + ")"; color: Theme.muted; vertical-alignment: center; }
+            }
+            Btn {
+                text: "Save current setup";
+                kind: "primary";
+                enabled: UiState.connection == 1 && UiState.new-profile-name != "" && !UiState.busy;
+                clicked => { Actions.profile-save-new(); }
+            }
+        }
+    }
+    grid := Rectangle {
+        property <int> cols: max(1, floor((self.width + 16px) / 300px));
+        property <length> tile-w: (self.width - (self.cols - 1) * 16px) / self.cols;
+        property <length> tile-h: 190px;
+        height: max(0px, ceil(UiState.profiles.length / self.cols) * (self.tile-h + 16px) - 16px);
+        for p[i] in UiState.profiles: ProfileTile {
+            p: p;
+            x: mod(i, grid.cols) * (grid.tile-w + 16px);
+            y: floor(i / grid.cols) * (grid.tile-h + 16px);
+            width: grid.tile-w;
+            height: grid.tile-h;
+        }
+    }
+}
+
+export component LightingPage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Lighting"; subtitle: "Firmware effects are stored on the keyboard and run without this app."; }
+    KeyboardCard { }
+    Card {
+        title: "Firmware effect";
+        Row {
+            label: "Effect";
+            ComboBox {
+                model: UiState.light-modes;
+                current-index <=> UiState.light-mode;
+                selected => { Actions.light-mode-picked(self.current-index); }
+                max-width: 320px;
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if UiState.light-color-ok: Row {
+            label: "Colour";
+            ColorEdit { color <=> UiState.light-color; edited => { Actions.light-edited(); } }
+        }
+        if !UiState.light-color-ok: Row {
+            label: "Colour";
+            Text { text: "This effect picks its own colours."; color: Theme.muted; vertical-alignment: center; }
+        }
+        Row {
+            label: "Brightness";
+            ValueSlider { minimum: 0; maximum: UiState.brightness-max; step: 1; decimals: 0; value <=> UiState.light-brightness; changed => { Actions.light-edited(); } }
+        }
+        if UiState.light-speed-ok: Row {
+            label: "Speed";
+            ValueSlider { minimum: 0; maximum: UiState.speed-max; step: 1; decimals: 0; value <=> UiState.light-speed; changed => { Actions.light-edited(); } }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn { text: "Apply"; kind: "primary"; enabled: UiState.light-dirty && !UiState.busy; clicked => { Actions.light-apply(); } }
+            Btn { text: "Revert"; enabled: UiState.light-dirty; clicked => { Actions.light-revert(); } }
+            Btn { text: "Re-read"; kind: "ghost"; enabled: !UiState.busy; clicked => { Actions.light-reread(); } }
+            if UiState.effect-running != "": Text {
+                text: "Applying a firmware effect stops the running host effect.";
+                color: Theme.warn; vertical-alignment: center; font-size: 13px;
+            }
+        }
+    }
+}
+
+export component EffectsPage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Effects"; subtitle: "Animated by this app and streamed to every key at 28 fps. They stop when the app closes."; }
+    KeyboardCard { }
+    Card {
+        title: "Host effect";
+        Row {
+            label: "Effect";
+            ComboBox {
+                model: UiState.fx-kinds;
+                current-index <=> UiState.fx-kind;
+                enabled: UiState.effect-running == "";
+                selected => { Actions.fx-pick(self.current-index); }
+                max-width: 320px;
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Row {
+            label: "Colours";
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                for c[i] in UiState.fx-palette: Swatch {
+                    swatch: c;
+                    selected: UiState.fx-edit == i;
+                    clicked => { UiState.fx-edit = UiState.fx-edit == i ? -1 : i; UiState.fx-edit-color = c; }
+                }
+                Btn { text: "+"; small: true; enabled: UiState.fx-palette.length < 8; clicked => { Actions.fx-add-color(); } }
+                if UiState.fx-edit >= 0: Btn {
+                    text: "Remove"; small: true; kind: "danger";
+                    enabled: UiState.fx-palette.length > 1;
+                    clicked => { Actions.fx-remove-color(UiState.fx-edit); UiState.fx-edit = -1; }
+                }
+            }
+        }
+        if UiState.fx-edit >= 0: Row {
+            label: "Edit colour";
+            ColorEdit {
+                color <=> UiState.fx-edit-color;
+                edited(c) => { Actions.fx-set-color(UiState.fx-edit, c); }
+            }
+        }
+        Row {
+            label: "Background";
+            ColorEdit { color <=> UiState.fx-bg; }
+        }
+        Row { label: "Speed"; ValueSlider { minimum: 0; maximum: 1; step: 0.01; show-value: false; value <=> UiState.fx-speed; } }
+        Row { label: "Brightness"; ValueSlider { minimum: 0; maximum: 1; step: 0.01; show-value: false; value <=> UiState.fx-brightness; } }
+        Row {
+            label: "Direction";
+            Segmented { options: ["Right", "Left", "Up", "Down"]; current <=> UiState.fx-direction; }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            if UiState.effect-running == "": Btn {
+                text: "Start effect"; kind: "primary";
+                enabled: UiState.connection == 1 && !UiState.busy;
+                clicked => { Actions.fx-start(); }
+            }
+            if UiState.effect-running != "": Btn { text: "Stop effect"; kind: "danger"; clicked => { Actions.fx-stop(); } }
+            Btn { text: "Reset to defaults"; kind: "ghost"; enabled: UiState.effect-running == ""; clicked => { Actions.fx-defaults(); } }
+        }
+    }
+}
+
+component PresetsCard inherits Card {
+    title: "Quick presets";
+    subtitle: "One click, saved to the keyboard. A backup is taken first.";
+    Segmented {
+        options: ["Selected keys (" + UiState.selected-count + ")", "All keys"];
+        current <=> UiState.scope;
+    }
+    for p[i] in UiState.presets: HorizontalLayout {
+        spacing: 12px;
+        Btn {
+            text: p.name;
+            width: 140px;
+            enabled: !UiState.busy && UiState.connection == 1 && (UiState.scope == 1 || UiState.selected-count > 0);
+            clicked => { Actions.preset(i); }
+        }
+        Text { text: p.detail; color: Theme.muted; vertical-alignment: center; }
+    }
+}
+
+component CustomCard inherits Card {
+    title: "Custom";
+    subtitle: "Fine-tune, then apply to the selection or the whole keyboard.";
+    Row { label: "Actuation"; ValueSlider { minimum: UiState.travel-min; maximum: UiState.travel-max; step: 0.01; suffix: " mm"; value <=> UiState.travel; } }
+    Row {
+        label: "Rapid trigger";
+        enabled: UiState.rt-ok;
+        Toggle { checked <=> UiState.rt; enabled: UiState.rt-ok; y: (parent.height - self.height) / 2; }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    Row { label: "Press"; enabled: UiState.rt; ValueSlider { enabled: UiState.rt; minimum: UiState.rt-min; maximum: UiState.rt-max; step: 0.01; suffix: " mm"; value <=> UiState.press; } }
+    Row { label: "Release"; enabled: UiState.rt; ValueSlider { enabled: UiState.rt; minimum: UiState.rt-min; maximum: UiState.rt-max; step: 0.01; suffix: " mm"; value <=> UiState.release; } }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Btn {
+            text: UiState.scope == 1 ? "Apply to all keys" : "Apply to " + UiState.selected-count + (UiState.selected-count == 1 ? " key" : " keys");
+            kind: "primary";
+            enabled: !UiState.busy && UiState.connection == 1 && (UiState.scope == 1 || UiState.selected-count > 0);
+            clicked => { Actions.act-apply(); }
+        }
+        Btn { text: "Reset selected"; enabled: !UiState.busy && UiState.selected-count > 0; clicked => { Actions.act-reset-selected(); } }
+        Btn { text: "Reset all"; kind: "danger"; enabled: !UiState.busy && UiState.connection == 1; clicked => { Actions.act-reset-all(); } }
+        Btn { text: "Read"; kind: "ghost"; enabled: !UiState.busy && UiState.connection == 1; clicked => { Actions.act-read(); } }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Text { text: "Colour scale"; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
+        for st in [{ c: #2dd4bf, t: "0.1 mm" }, { c: #4fb1d8, t: "1 mm" }, { c: #6f88ec, t: "2 mm" }, { c: #8b5cf6, t: "3.4 mm" }]: HorizontalLayout {
+            spacing: 5px;
+            Rectangle { width: 12px; height: 12px; y: (parent.height - self.height) / 2; border-radius: 3px; background: st.c; }
+            Text { text: st.t; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
+        }
+    }
+}
+
+export component ActuationPage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Actuation"; subtitle: "How deep a key travels before it fires, and rapid trigger. Values on the keys are in mm; blank keys use the firmware default."; }
+    KeyboardCard { }
+    if root.width >= 1050px: HorizontalLayout {
+        spacing: 16px;
+        PresetsCard { horizontal-stretch: 1; }
+        CustomCard { horizontal-stretch: 1; }
+    }
+    if root.width < 1050px: VerticalLayout {
+        spacing: 16px;
+        PresetsCard { }
+        CustomCard { }
+    }
+}
+
+export component LivePage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Live depth"; subtitle: "How far each key is pressed, in real time."; }
+    Card {
+        title: "Not available on this keyboard";
+        Text {
+            wrap: word-wrap;
+            color: Theme.text;
+            text: "The AULA F75 HE doesn't report key depth through any safe command.";
+        }
+        Text {
+            wrap: word-wrap;
+            color: Theme.muted;
+            text: "Tested on 2026-10-21: the keyboard acknowledges the vendor SDK's travel-test mode but streams no depth data on any of its interfaces. The official driver's depth view only works inside calibration mode, which first erases the keyboard's stored calibration, so Aether deliberately doesn't use it.";
+        }
+    }
+}
+
+export component BackupsPage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Backups"; subtitle: "Taken automatically before every change. Restoring one is verified by reading the keyboard back."; }
+    Card {
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn { text: "Back up now"; kind: "primary"; enabled: UiState.connection == 1 && !UiState.busy; clicked => { Actions.backup-now(); } }
+            Btn { text: "Restore original"; enabled: UiState.connection == 1 && UiState.has-original && !UiState.busy; clicked => { Actions.backup-original(); } }
+            Btn { text: "Open folder"; kind: "ghost"; clicked => { Actions.open-dir(UiState.backups-dir); } }
+            Rectangle { horizontal-stretch: 1; }
+            Text { text: UiState.backups.length + " backups"; color: Theme.muted; vertical-alignment: center; }
+        }
+    }
+    Card {
+        if UiState.backups.length == 0: Text { text: "No backups yet."; color: Theme.muted; }
+        for b[i] in UiState.backups: Rectangle {
+            height: 48px;
+            border-radius: Theme.radius;
+            background: rta.has-hover ? Theme.surface-2 : transparent;
+            rta := TouchArea { }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 6px;
+                spacing: 12px;
+                Text { text: b.when; font-weight: 600; color: Theme.text; vertical-alignment: center; width: 110px; }
+                Text { text: b.file; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Btn {
+                    text: "Restore"; small: true;
+                    y: (parent.height - self.height) / 2;
+                    enabled: UiState.connection == 1 && !UiState.busy;
+                    clicked => { Actions.backup-restore(i); }
+                }
+            }
+        }
+    }
+}
+
+export component DevicePage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Device"; subtitle: UiState.connection == 1 ? UiState.board-name : "No keyboard connected"; }
+    if UiState.connection == 1: Card {
+        title: "Keyboard";
+        for r in UiState.device-info: HorizontalLayout {
+            spacing: 16px;
+            Text { text: r.key; color: Theme.muted; width: 160px; }
+            Text { text: r.value; color: Theme.text; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+    }
+    if UiState.connection == 2: Card {
+        title: "Can't reach the keyboard";
+        subtitle: UiState.down-reason;
+        Text { color: Theme.text; wrap: word-wrap; text: "Check that the keyboard is plugged in with the cable (not the 2.4 GHz dongle), that the Aula web driver isn't open in a browser, and that the udev rule is installed (./scripts/install.sh). Then replug the keyboard and press Reconnect."; }
+    }
+    Card {
+        title: "Files";
+        for r in [{ k: "Profiles", v: UiState.profiles-dir }, { k: "Backups", v: UiState.backups-dir }]: HorizontalLayout {
+            spacing: 16px;
+            Text { text: r.k; color: Theme.muted; width: 160px; vertical-alignment: center; }
+            Text { text: r.v; color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+            Btn { text: "Open"; small: true; kind: "ghost"; clicked => { Actions.open-dir(r.v); } }
+        }
+    }
+    Card {
+        title: "About";
+        subtitle: "Aether HE — open keyboard control for AULA Hall-effect keyboards.";
+        HorizontalLayout {
+            alignment: start;
+            AboutSlint { max-height: 140px; }
+        }
+    }
+}

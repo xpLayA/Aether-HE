@@ -1,5 +1,5 @@
 //! The device worker: one thread owns the keyboard. The UI sends [`Cmd`]s and
-//! receives [`Event`]s, so it never blocks on USB and never holds a lock.
+//! polls [`Event`]s, so it never blocks on USB and never holds a lock.
 //!
 //! While a host effect streams, every write pauses it (end stream, restore the
 //! firmware lighting), runs with a normal backup + verify, then resumes. That
@@ -54,11 +54,11 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn spawn(ctx: eframe::egui::Context) -> Worker {
+    pub fn spawn() -> Worker {
         let (tx, rx) = channel();
         let (etx, events) = channel();
         let live = Arc::new(Mutex::new(None));
-        let state = State { kb: None, rx, tx: etx, ctx, effect: None, live: live.clone() };
+        let state = State { kb: None, rx, tx: etx, effect: None, live: live.clone() };
         let handle = std::thread::Builder::new().name("aether-device".into()).spawn(move || state.run()).ok();
         Worker { tx, events, live, handle }
     }
@@ -102,7 +102,6 @@ struct State {
     kb: Option<Box<dyn Keyboard>>,
     rx: Receiver<Cmd>,
     tx: Sender<Event>,
-    ctx: eframe::egui::Context,
     effect: Option<Running>,
     live: Arc<Mutex<Option<Frame>>>,
 }
@@ -112,7 +111,6 @@ type R<T> = aether_device::Result<T>;
 impl State {
     fn emit(&self, e: Event) {
         let _ = self.tx.send(e);
-        self.ctx.request_repaint();
     }
 
     fn run(mut self) {
@@ -339,7 +337,6 @@ impl State {
         match sent {
             Ok(()) => {
                 *self.live.lock().unwrap_or_else(|e| e.into_inner()) = Some(frame);
-                self.ctx.request_repaint();
             }
             Err(e) => {
                 self.effect = None;

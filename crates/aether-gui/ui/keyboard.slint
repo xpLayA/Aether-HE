@@ -1,0 +1,167 @@
+// The keyboard: keycaps from the layout (positions in layout units, scaled to
+// fit), one TouchArea for click / Shift+click / drag-rectangle selection.
+// Hit-testing happens in Rust; this file only draws and reports pointer input.
+
+import { Theme } from "theme.slint";
+import { UiState, Actions, KeyCap } from "state.slint";
+import { PillButton } from "widgets.slint";
+
+component Keycap inherits Rectangle {
+    in property <KeyCap> key;
+    in property <float> s;
+    in property <bool> hovered;
+    x: key.x * s * 1px;
+    y: key.y * s * 1px;
+    width: key.w * s * 1px;
+    height: key.h * s * 1px;
+
+    property <length> inset: 2.5px;
+    shadow := Rectangle {
+        x: root.inset;
+        y: root.inset + 3px;
+        width: parent.width - 2 * root.inset;
+        height: parent.height - 2 * root.inset;
+        border-radius: 7px;
+        background: Theme.key-shadow;
+    }
+    face := Rectangle {
+        x: root.inset;
+        y: root.inset - (root.hovered ? 1px : 0px);
+        width: parent.width - 2 * root.inset;
+        height: parent.height - 2 * root.inset;
+        border-radius: 7px;
+        background: root.hovered ? root.key.fill.brighter(0.15) : root.key.fill;
+        border-width: 1px;
+        border-color: Theme.key-edge;
+        animate y, background { duration: 110ms; }
+        // top highlight
+        Rectangle {
+            x: 6px;
+            y: 1px;
+            width: parent.width - 12px;
+            height: 1px;
+            background: #ffffff1c;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.key.label;
+                font-size: (root.key.label.character-count > 4 ? 10px : 12px) * max(0.8, min(1.25, root.s));
+                font-weight: 600;
+                color: root.key.ink;
+                horizontal-alignment: center;
+            }
+            if root.key.value != "": Text {
+                text: root.key.value;
+                font-size: 10px * max(0.8, min(1.2, root.s));
+                color: root.key.ink.with-alpha(0.85);
+                horizontal-alignment: center;
+            }
+        }
+    }
+    ring := Rectangle {
+        x: root.inset - 2px;
+        y: root.inset - 2px - (root.hovered ? 1px : 0px);
+        width: parent.width - 2 * root.inset + 4px;
+        height: parent.height - 2 * root.inset + 4px;
+        border-radius: 9px;
+        border-width: root.key.selected ? 2px : 0px;
+        border-color: Theme.accent;
+        opacity: root.key.selected ? 1 : 0;
+        animate opacity, y { duration: 120ms; }
+    }
+}
+
+export component KeyboardCard inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 18px;
+        spacing: 14px;
+        board := Rectangle {
+            property <float> s: min(1.6, self.width / (UiState.board-w * 1px));
+            height: UiState.board-h * self.s * 1px + 4px;
+            property <float> hx: -1;
+            property <float> hy: -1;
+            property <length> dx0;
+            property <length> dy0;
+            property <bool> dragging;
+
+            for k in UiState.keys: Keycap {
+                key: k;
+                s: board.s;
+                hovered: touch.has-hover && !board.dragging
+                    && board.hx >= k.x && board.hx < k.x + k.w && board.hy >= k.y && board.hy < k.y + k.h;
+            }
+            if board.dragging: Rectangle {
+                x: min(board.dx0, touch.mouse-x);
+                y: min(board.dy0, touch.mouse-y);
+                width: abs(touch.mouse-x - board.dx0);
+                height: abs(touch.mouse-y - board.dy0);
+                background: #60cdff1f;
+                border-width: 1px;
+                border-color: Theme.accent;
+                border-radius: 4px;
+            }
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                        board.dx0 = self.mouse-x;
+                        board.dy0 = self.mouse-y;
+                        board.dragging = false;
+                    } else if (e.kind == PointerEventKind.move) {
+                        board.hx = self.mouse-x / 1px / board.s;
+                        board.hy = self.mouse-y / 1px / board.s;
+                        if (self.pressed && (abs(self.mouse-x - board.dx0) > 5px || abs(self.mouse-y - board.dy0) > 5px)) {
+                            board.dragging = true;
+                        }
+                        Actions.board-hover(board.hx, board.hy);
+                    } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                        if (board.dragging) {
+                            Actions.board-rect(
+                                min(board.dx0, self.mouse-x) / 1px / board.s,
+                                min(board.dy0, self.mouse-y) / 1px / board.s,
+                                max(board.dx0, self.mouse-x) / 1px / board.s,
+                                max(board.dy0, self.mouse-y) / 1px / board.s,
+                                e.modifiers.shift || e.modifiers.control);
+                        } else {
+                            Actions.board-click(self.mouse-x / 1px / board.s, self.mouse-y / 1px / board.s,
+                                e.modifiers.shift || e.modifiers.control);
+                        }
+                        board.dragging = false;
+                    }
+                }
+                changed has-hover => {
+                    if (!self.has-hover) { board.hx = -1; board.hy = -1; Actions.board-leave(); }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "Select"; color: Theme.muted; vertical-alignment: center; font-size: Theme.font-small; }
+            for g in ["All", "WASD", "Letters", "Numbers", "Arrows", "Modifiers"]: PillButton {
+                text: g;
+                clicked => { Actions.quick-select(g); }
+            }
+            PillButton {
+                text: "Clear";
+                enabled: UiState.selected-count > 0;
+                clicked => { Actions.quick-select("Clear"); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                vertical-alignment: center;
+                font-size: Theme.font-small;
+                color: UiState.hover-key != "" ? Theme.text : Theme.muted;
+                text: UiState.hover-key != ""
+                    ? UiState.hover-key + (UiState.hover-info != "" ? "  ·  " + UiState.hover-info : "")
+                    : UiState.selected-count + " selected";
+            }
+        }
+    }
+}
