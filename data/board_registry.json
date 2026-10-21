@@ -421,17 +421,174 @@
     },
     {
       "slug": "aula-f75-he",
-      "offerInUi": false,
+      "offerInUi": true,
       "name": "AULA F75 HE",
       "vid": "0x38A6",
       "pid": "0x2729",
       "formFactor": "75%",
-      "_note": "IDENTITY-ONLY entry, SOURCE-ONLY from the HFD hub driver's device registry (HFD_SDK_DECODE.md section 14: PID 0x2729/10025, F75 layout). Same-protocol sibling of the MINI 60 HE PRO per the vendor driver. NOT the same device as aula-f75-tri-mode (0x258A:0x010C) — different silicon family. No capture -> protocol null, capabilities false. keymap is a PLACEHOLDER (the tri-mode F75 layout); the real HFD F75 layout (vendor layout table 't') is a follow-up.",
-      "usage_page": null,
-      "keymap": "ui/layouts/aula-f75.json",
-      "protocol": null,
-      "capabilities": { "lighting": false, "actuation": false, "perKeyRgb": false },
-      "status": "planned",
+      "_note": "HFD-family board (vendor hub driver: PID 10025 -> F75 layout `t`), driven by protocol_mini60 at 64-byte frames. Vendor collection read from hardware 2026-10-21: iface 2, usage page 0xFF68 usage 0x61, no report id, 64-byte in/out -- the MINI 60 HE PRO signature. 0x10 device info replies 0x55 with 38A6:2729. Bring-up scope: lighting, perKeyRgb (host stream), actuation, rapidTrigger -- see the lighting/actuation _notes for the evidence. Key table (0x12, read-only so far) matches the 80-key layout except F1-F12, whose base records are empty (firmware default); the extra populated slots are the firmware's shared full-size defaults (numpad etc). Everything else stays 'wip' (SOURCE-ONLY) until round-tripped on this board: deadzone, socd, remap, advancedKeys, macros, calibration. gamepad false (no HFD command). The rotary knob is not modelled.",
+      "usage_page": "0xFF68",
+      "keymap": "ui/layouts/aula-f75he.json",
+      "protocol": "protocol_mini60",
+      "frameLen": 64,
+      "capabilities": {
+        "lighting": true,
+        "actuation": true,
+        "perKeyRgb": true,
+        "rapidTrigger": true,
+        "deadzone": "wip",
+        "socd": "wip",
+        "remap": "wip",
+        "advancedKeys": "wip",
+        "macros": "wip",
+        "calibration": "wip",
+        "gamepad": false
+      },
+      "lighting": {
+        "_note": "Mode table copied from aula-mini60he-pro (same HFD firmware family). HARDWARE-VERIFIED on the F75 HE 2026-10-21: 0x13 read decodes (stored mode 11 Drifting, colorMode 1, brightness 5, speed 3); a 0x23 static-red write rendered solid red (visually confirmed) and the mode byte read back, but the 0x13 colour bytes kept the previously stored ff ff ff -- the read-back colour field is not authoritative on this board; restore byte-exact. hostEngine: 0x32 live stream measured 28.1 fps, 0 errors, p50 35.8 ms over 10 s; a solid-blue fill and a single green key walking all 80 layout indices rendered correctly (visually confirmed); 0x36 clear + 0x23 restore returned the firmware effect byte-exact. Other individual firmware modes beyond static/drifting are SOURCE-ONLY for this board.",
+        "brightnessMax": 5,
+        "speedMax": 5,
+        "brightnessMin": 0,
+        "speedMin": 0,
+        "modeListSource": "static",
+        "offModeByte": 0,
+        "customModeByte": 20,
+        "hostEngine": true,
+        "hostEngineMaxFps": 28,
+        "modes": [
+          {
+            "id": "static",
+            "name": "Static",
+            "byte": 1,
+            "speed": false
+          },
+          {
+            "id": "reactive-single",
+            "name": "Reactive Single",
+            "byte": 2
+          },
+          {
+            "id": "extinguish-single",
+            "name": "Extinguish Single",
+            "byte": 3
+          },
+          {
+            "id": "starry-sky",
+            "name": "Starry Sky",
+            "byte": 4
+          },
+          {
+            "id": "snowfall",
+            "name": "Snowfall",
+            "byte": 5
+          },
+          {
+            "id": "blossoming",
+            "name": "Blossoming",
+            "byte": 6,
+            "color": false
+          },
+          {
+            "id": "dynamic-breathing",
+            "name": "Dynamic Breathing",
+            "byte": 7
+          },
+          {
+            "id": "spectrum-cycle",
+            "name": "Spectrum Cycle",
+            "byte": 8,
+            "color": false
+          },
+          {
+            "id": "color-spring",
+            "name": "Color Spring",
+            "byte": 9
+          },
+          {
+            "id": "colorful-cross",
+            "name": "Colorful Cross",
+            "byte": 10,
+            "direction": true
+          },
+          {
+            "id": "drifting",
+            "name": "Drifting",
+            "byte": 11,
+            "direction": true
+          },
+          {
+            "id": "twisting-path",
+            "name": "Twisting Path",
+            "byte": 12,
+            "direction": true
+          },
+          {
+            "id": "reactive",
+            "name": "Reactive",
+            "byte": 13
+          },
+          {
+            "id": "double-tap",
+            "name": "Double Tap",
+            "byte": 14
+          },
+          {
+            "id": "ripple-spread",
+            "name": "Ripple Spread",
+            "byte": 15,
+            "color": false
+          },
+          {
+            "id": "flowing",
+            "name": "Flowing",
+            "byte": 16,
+            "direction": true
+          },
+          {
+            "id": "mountain-peaks",
+            "name": "Mountain Peaks",
+            "byte": 17,
+            "color": false
+          },
+          {
+            "id": "gentle-rain",
+            "name": "Gentle Rain",
+            "byte": 18,
+            "direction": true,
+            "color": false
+          },
+          {
+            "id": "shuttle",
+            "name": "Shuttle",
+            "byte": 19,
+            "color": false
+          },
+          {
+            "id": "custom",
+            "name": "Custom (per-key)",
+            "byte": 20,
+            "speed": false
+          }
+        ]
+      },
+      "actuation": {
+        "_note": "Record layout = protocol_mini60 (126 x 8 B, LE16 0.01 mm). HARDWARE-VERIFIED on the F75 HE 2026-10-21: the stored table read all zero (factory, never configured) with valid 0x55 replies; set_actuation on W (index 34) stored fixed 1.50 mm, then RT 1.50/0.30/0.30, each read back exactly with no other slot touched, and the original table was rewritten byte-identical. The FIRMWARE'S use of a written record (does the key actually trip at that depth) is not yet measured. Ranges and deadzoneScope copied from aula-mini60he-pro (SOURCE-ONLY here).",
+        "deadzoneScope": "global",
+        "travelRange": [
+          0.1,
+          3.4
+        ],
+        "rtRange": [
+          0.01,
+          3.4
+        ],
+        "deadzoneRange": [
+          0.0,
+          0.5
+        ],
+        "switches": []
+      },
+      "status": "supported",
       "issues": []
     },
     {

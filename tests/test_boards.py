@@ -211,6 +211,15 @@ def test_only_captured_boards_are_drivable():
        Bring-up must also confirm triggerUnit = 0.01 mm (cmd 33 sub 4) since
        a high-precision firmware would rescale actuation 10x.
 
+    PROMOTION 2026-10-21: aula-f75-he (38A6:2729) leaves the identity-only
+    set on its OWN hardware evidence, not by inference from its HFD siblings:
+    the vendor collection read from the board is 0xFF68/0x61 with 64-byte
+    reports, 0x10 answered 0x55 with 38A6:2729, a 0x23 static-red write and a
+    0x32 host stream (28.1 fps; one green key walked all 80 layout indices)
+    rendered visibly, and a 0x27 actuation write on W read back exactly via
+    0x17 with the table restored byte-identical. Only the round-tripped
+    capabilities are true; the rest stay 'wip'.
+
     Everything else in this test keeps its teeth: any board whose USB identity
     differs from a captured one still needs its own capture.
     """
@@ -218,7 +227,8 @@ def test_only_captured_boards_are_drivable():
     captured = {"aula-win60-he", "aula-mini60he-max",
                 "aula-win60he-pro", "aula-mini60he-pro",  # own decoded protocol
                 "aula-mini60he-pro-24g",  # own dongle captures + HW-verified 0xFF60 transport (see docstring)
-                "aula-win68-he", "aula-kp-te153"}  # 2E3C:C365 shared-identity exception (see docstring)
+                "aula-win68-he", "aula-kp-te153",  # 2E3C:C365 shared-identity exception (see docstring)
+                "aula-f75-he"}  # own hardware round-trips 2026-10-21 (see docstring)
     for p in reg.profiles:
         if p.slug in captured:
             assert p.drivable, f"{p.slug} should be drivable"
@@ -245,10 +255,11 @@ def test_frame_len_declared_in_raw_registry():
     by_slug = {b["slug"]: b for b in raw["boards"]}
     assert by_slug["aula-mini60he-pro"]["frameLen"] == 64
     assert by_slug["aula-mini60he-pro-24g"]["frameLen"] == 32
+    assert by_slug["aula-f75-he"]["frameLen"] == 64
     # no other board declares a frame length yet — the wired 64 default
     # covers everything else, so nothing changes for existing boards
     for slug, b in by_slug.items():
-        if slug not in ("aula-mini60he-pro", "aula-mini60he-pro-24g"):
+        if slug not in ("aula-mini60he-pro", "aula-mini60he-pro-24g", "aula-f75-he"):
             assert "frameLen" not in b, f"{slug} unexpectedly declares frameLen"
 
 
@@ -342,7 +353,6 @@ def test_hfd_sibling_identity_entries_present():
         "aula-mini68he": (0x38A6, 0x2722),
         "aula-mini68he-pro": (0x38A6, 0x2723),
         "aula-mini68he-max": (0x38A6, 0x2724),
-        "aula-f75-he": (0x38A6, 0x2729),
         "aula-mini60he-max-24g": (0x0C45, 0xFEFC),
     }
     for slug, (vid, pid) in expected.items():
@@ -737,7 +747,8 @@ def test_unsupported_boards_are_never_offered():
     # both are drivable by family/capture, but no physical example of either has
     # ever been driven by Aether. mini60he-max is out for the same reason.
     assert offered == {"aula-win60-he", "aula-win68-he",
-                       "aula-mini60he-pro", "aula-mini60he-pro-24g"}
+                       "aula-mini60he-pro", "aula-mini60he-pro-24g",
+                       "aula-f75-he"}
     for p in reg.profiles:
         if not p.drivable:
             assert p.offered is False, f"{p.slug} has no protocol but is offered"

@@ -13,7 +13,7 @@ finish-args:
   # Network: in-app update check against the GitHub Releases API.
   - --share=network
   # HID (hidraw) for the keyboard + /dev/uinput for the virtual gamepad.
-  # Host udev rules (99-aula.rules, 99-uinput.rules) still govern node perms.
+  # Host udev rules (70-aula.rules, 99-uinput.rules) still govern node perms.
   - --device=all
   # In-app updater installs the new .flatpak bundle on the host via
   # `flatpak-spawn --host flatpak install` (the sandbox can't install itself).

@@ -32,6 +32,14 @@
       "lighting": "wip",
       "actuation": "wip",
       "status": "Bring-up — auto-detected, shares the Win60 protocol; not yet verified on hardware"
+    },
+    {
+      "slug": "aula-f75-he",
+      "name": "AULA F75 HE",
+      "switches": "Hall-effect",
+      "lighting": true,
+      "actuation": true,
+      "status": "Supported — lighting, host effects and actuation/RT hardware-verified 2026-10-21; remap/macros/SOCD/calibration not yet"
     }
   ],
   "recognized": [
@@ -63,11 +71,6 @@
     {
       "slug": "aula-mini68he-max",
       "name": "Aula MINI68 HE MAX",
-      "reason": "listed by the vendor driver, no capture"
-    },
-    {
-      "slug": "aula-f75-he",
-      "name": "AULA F75 HE",
       "reason": "listed by the vendor driver, no capture"
     },
     {
