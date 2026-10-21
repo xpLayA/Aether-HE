@@ -19,6 +19,10 @@ pub enum Cmd {
     Connect,
     ReadLighting,
     SetLighting(Lighting),
+    /// Show `Lighting` on the keyboard without saving or backing up.
+    PreviewLighting(Lighting),
+    /// Put back the lighting that was active before previewing started.
+    CancelPreview,
     ReadActuation,
     SetActuation { keys: Vec<usize>, setting: Actuation },
     StartEffect(EffectSpec),
@@ -37,6 +41,7 @@ pub enum Event {
     Lighting(Lighting),
     Actuation(ActTable),
     EffectRunning(Option<EffectSpec>),
+    Previewing(bool),
     ProfileApplied(String),
     ProfilesChanged,
     BackupsChanged,
@@ -58,7 +63,7 @@ impl Worker {
         let (tx, rx) = channel();
         let (etx, events) = channel();
         let live = Arc::new(Mutex::new(None));
-        let state = State { kb: None, rx, tx: etx, effect: None, live: live.clone() };
+        let state = State { kb: None, rx, tx: etx, effect: None, preview_base: None, live: live.clone() };
         let handle = std::thread::Builder::new().name("aether-device".into()).spawn(move || state.run()).ok();
         Worker { tx, events, live, handle }
     }
@@ -103,6 +108,8 @@ struct State {
     rx: Receiver<Cmd>,
     tx: Sender<Event>,
     effect: Option<Running>,
+    /// Lighting to restore when a preview is cancelled (or the app exits mid-preview).
+    preview_base: Option<Lighting>,
     live: Arc<Mutex<Option<Frame>>>,
 }
 
@@ -137,10 +144,21 @@ impl State {
         if let Err(e) = self.stop_effect() {
             log::warn!("stopping the effect on exit: {e}");
         }
+        if let Err(e) = self.cancel_preview() {
+            log::warn!("restoring the lighting after a preview on exit: {e}");
+        }
+    }
+
+    /// Restore the pre-preview lighting, if a preview is open.
+    fn cancel_preview(&mut self) -> R<()> {
+        let Some(base) = self.preview_base.take() else { return Ok(()) };
+        self.emit(Event::Previewing(false));
+        self.kb()?.set_lighting(&base)
     }
 
     fn connect(&mut self) {
         let _ = self.stop_effect();
+        let _ = self.cancel_preview();
         self.kb = None;
         match aether_device::connect() {
             Ok((kb, info)) => {
@@ -170,6 +188,7 @@ impl State {
                 self.emit(Event::Err(e.to_string()));
                 if lost {
                     self.effect = None;
+                    self.preview_base = None;
                     self.kb = None;
                     self.emit(Event::EffectRunning(None));
                     self.emit(Event::Disconnected(e.to_string()));
@@ -214,13 +233,42 @@ impl State {
             Cmd::ReadActuation => self.read_actuation(),
             Cmd::SetLighting(l) => {
                 // Choosing firmware lighting ends a host effect for good.
+                let base = self.preview_base.take();
                 let r = self.stop_effect().and_then(|_| {
                     let kb = self.kb()?;
-                    Backup::snapshot(kb.as_mut())?;
+                    let mut backup = Backup::capture(kb.as_mut())?;
+                    // Mid-preview, the keyboard shows the preview: back up what was
+                    // there before it, so restoring this backup undoes the change.
+                    if let Some(b) = base {
+                        backup.lighting = b.into();
+                    }
+                    backup.save_in(&aether_device::backups_dir()?)?;
                     kb.set_lighting(&l)
                 });
+                if base.is_some() {
+                    self.emit(Event::Previewing(false));
+                }
                 self.report(r, |_| Some("Lighting applied (backup saved)".into()));
                 self.emit(Event::BackupsChanged);
+                self.read_lighting();
+            }
+            Cmd::PreviewLighting(l) => {
+                let r = self.stop_effect().and_then(|_| {
+                    let kb = self.kb.as_mut().ok_or(aether_device::Error::NotFound)?;
+                    if self.preview_base.is_none() {
+                        self.preview_base = Some(kb.lighting()?);
+                    }
+                    kb.set_lighting(&l)
+                });
+                let ok = r.is_ok();
+                self.report(r, |_| None);
+                if ok {
+                    self.emit(Event::Previewing(true));
+                }
+            }
+            Cmd::CancelPreview => {
+                let r = self.cancel_preview();
+                self.report(r, |_| Some("Preview cancelled, lighting restored".into()));
                 self.read_lighting();
             }
             Cmd::SetActuation { keys, setting } => {

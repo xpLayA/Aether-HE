@@ -21,7 +21,10 @@ use worker::{Cmd, Event, Worker};
 slint::include_modules!();
 
 const PAGES: [&str; 7] = ["profiles", "lighting", "effects", "actuation", "live", "backups", "device"];
+const P_LIGHTING: i32 = 1;
 const P_EFFECTS: i32 = 2;
+/// Minimum gap between lighting previews sent while you drag a slider.
+const PREVIEW_GAP: Duration = Duration::from_millis(250);
 const P_ACTUATION: i32 = 3;
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -72,6 +75,12 @@ struct Saved {
     page: i32,
     fx: EffectSpec,
     active_profile: Option<String>,
+    #[serde(default = "yes")]
+    live_preview: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Saved {
@@ -83,7 +92,7 @@ impl Saved {
         Saved::path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None })
+            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None, live_preview: true })
     }
 
     fn store(&self) {
@@ -137,6 +146,11 @@ struct State {
     starters_done: bool,
     /// Layout offset so the drawn keyboard starts at (0, 0).
     origin: (f32, f32),
+    live_preview: bool,
+    /// The keyboard is showing an unapplied lighting preview.
+    previewing: bool,
+    preview_pending: bool,
+    preview_sent: Instant,
 }
 
 fn rgb(c: [u8; 3]) -> Color {
@@ -204,11 +218,20 @@ impl State {
             busy: true,
             starters_done: false,
             origin: (0.0, 0.0),
+            live_preview: saved.live_preview,
+            previewing: false,
+            preview_pending: false,
+            preview_sent: Instant::now(),
         }
     }
 
     fn saved(&self, ui: &AppWindow) -> Saved {
-        Saved { page: ui.global::<UiState>().get_page(), fx: self.fx.clone(), active_profile: self.active_profile.clone() }
+        Saved {
+            page: ui.global::<UiState>().get_page(),
+            fx: self.fx.clone(),
+            active_profile: self.active_profile.clone(),
+            live_preview: self.live_preview,
+        }
     }
 
     fn send(&mut self, cmd: Cmd) {
@@ -269,6 +292,7 @@ impl State {
                 }
                 Event::Actuation(t) => self.table = Some(t),
                 Event::EffectRunning(spec) => self.running = spec,
+                Event::Previewing(on) => self.previewing = on,
                 Event::ProfileApplied(name) => self.active_profile = Some(name),
                 Event::ProfilesChanged => self.reload_profiles(),
                 Event::BackupsChanged => self.reload_backups(),
@@ -276,6 +300,15 @@ impl State {
                 Event::Err(m) => self.toast(m, true),
                 Event::Idle => self.busy = false,
             }
+        }
+        // Trailing debounce: the last edit is always shown, at most every PREVIEW_GAP.
+        if self.preview_pending && self.preview_sent.elapsed() >= PREVIEW_GAP {
+            if let Some(l) = self.light_form.filter(|_| matches!(self.conn, Conn::Up { .. })) {
+                // Not `send`: a preview shouldn't flash the busy spinner or disable buttons.
+                self.worker.send(Cmd::PreviewLighting(l));
+            }
+            self.preview_pending = false;
+            self.preview_sent = Instant::now();
         }
         let before = self.toasts.len();
         self.toasts.retain(|(_, err, at)| at.elapsed() < Duration::from_secs(if *err { 8 } else { 4 }));
@@ -440,6 +473,8 @@ impl State {
         g.set_brightness_max(info.brightness_max as f32);
         g.set_speed_max(info.speed_max as f32);
         g.set_light_dirty(self.lighting != Some(l));
+        g.set_live_preview(self.live_preview);
+        g.set_previewing(self.previewing);
     }
 
     fn push_effects(&self, ui: &AppWindow) {
@@ -567,6 +602,17 @@ impl State {
         }
         self.light_form = Some(l);
         g.set_light_dirty(self.lighting != Some(l));
+        if self.live_preview {
+            self.preview_pending = true;
+        }
+    }
+
+    /// Drop an unapplied preview and put the keyboard back.
+    fn cancel_preview(&mut self) {
+        self.preview_pending = false;
+        if self.previewing {
+            self.send(Cmd::CancelPreview);
+        }
     }
 
     fn hit(&self, x: f32, y: f32) -> Option<usize> {
@@ -670,7 +716,13 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     }
 
     on!(on_nav, |s, ui, i: i32| {
-        ui.global::<UiState>().set_page(i);
+        let g = ui.global::<UiState>();
+        if g.get_page() == P_LIGHTING && i != P_LIGHTING {
+            s.cancel_preview();
+            s.light_form = s.lighting;
+            s.color_touched = false;
+        }
+        g.set_page(i);
         s.hovered = None;
     });
     on!(on_reconnect, |s, ui| {
@@ -808,14 +860,24 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     }
     on!(on_light_apply, |s, ui| {
         s.light_from_ui(&ui);
+        s.preview_pending = false;
         if let Some(l) = s.light_form {
             s.active_profile = None;
             s.send(Cmd::SetLighting(l));
         }
     });
     on!(on_light_revert, |s, ui| {
+        s.cancel_preview();
         s.light_form = s.lighting;
         s.color_touched = false;
+    });
+    on!(on_light_preview_toggled, |s, ui, on: bool| {
+        s.live_preview = on;
+        if on {
+            s.preview_pending = s.lighting != s.light_form;
+        } else {
+            s.cancel_preview();
+        }
     });
     on!(on_light_reread, |s, ui| {
         s.send(Cmd::ReadLighting);

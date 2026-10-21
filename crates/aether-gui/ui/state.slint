@@ -81,6 +81,8 @@ export global UiState {
     in property <float> brightness-max: 5;
     in property <float> speed-max: 5;
     in property <bool> light-dirty;
+    in-out property <bool> live-preview: true;
+    in property <bool> previewing;
 
     // effects
     in property <[string]> fx-kinds;
@@ -142,6 +144,7 @@ export global Actions {
     callback light-revert();
     callback light-reread();
     callback light-edited();
+    callback light-preview-toggled(bool);
 
     callback fx-pick(int);
     callback fx-set-color(int, color);

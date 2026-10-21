@@ -139,7 +139,29 @@ export component LightingPage inherits VerticalLayout {
     PageTitle { title: "Lighting"; subtitle: "Firmware effects are stored on the keyboard and run without this app."; }
     KeyboardCard { }
     Card {
-        title: "Firmware effect";
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                spacing: 2px;
+                horizontal-stretch: 1;
+                Text { text: "Firmware effect"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text {
+                    text: UiState.previewing ? "Previewing on the keyboard. Not saved yet: Apply to keep it, Cancel to go back."
+                        : UiState.live-preview ? "Changes show on the keyboard right away; nothing is saved until you press Apply."
+                        : "Live preview is off: changes are sent only when you press Apply.";
+                    font-size: Theme.font-small;
+                    color: UiState.previewing ? Theme.accent : Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+            if UiState.previewing: Chip { text: "Previewing"; y: (parent.height - self.height) / 2; }
+            Text { text: "Live preview"; color: Theme.muted; vertical-alignment: center; }
+            Toggle {
+                y: (parent.height - self.height) / 2;
+                checked <=> UiState.live-preview;
+                toggled(on) => { Actions.light-preview-toggled(on); }
+            }
+        }
         Row {
             label: "Effect";
             ComboBox {
@@ -170,10 +192,14 @@ export component LightingPage inherits VerticalLayout {
             spacing: 8px;
             alignment: start;
             Btn { text: "Apply"; kind: "primary"; enabled: UiState.light-dirty && !UiState.busy; clicked => { Actions.light-apply(); } }
-            Btn { text: "Revert"; enabled: UiState.light-dirty; clicked => { Actions.light-revert(); } }
-            Btn { text: "Re-read"; kind: "ghost"; enabled: !UiState.busy; clicked => { Actions.light-reread(); } }
+            Btn {
+                text: UiState.previewing ? "Cancel preview" : "Revert";
+                enabled: UiState.light-dirty || UiState.previewing;
+                clicked => { Actions.light-revert(); }
+            }
+            Btn { text: "Re-read"; kind: "ghost"; enabled: !UiState.busy && !UiState.previewing; clicked => { Actions.light-reread(); } }
             if UiState.effect-running != "": Text {
-                text: "Applying a firmware effect stops the running host effect.";
+                text: "Previewing or applying a firmware effect stops the running host effect.";
                 color: Theme.warn; vertical-alignment: center; font-size: 13px;
             }
         }
