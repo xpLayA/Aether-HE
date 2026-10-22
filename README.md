@@ -66,11 +66,14 @@ and the original settings saved automatically, over USB-C or the 2.4 GHz receive
 |---|---|---|
 | AULA F75 HE (wired, USB-C) | `38A6:2729` | Tested: lighting · host effects · actuation · rapid trigger · advanced keys |
 | AULA F75 HE (2.4 GHz receiver) | `0C45:FEFE` | Tested: lighting · actuation · rapid trigger · advanced keys · battery (no host effects) |
+| AULA F75 HE (Bluetooth) | — | Typing only: the keyboard exposes no settings channel over Bluetooth |
 
 **Not supported (yet):**
 - plain key remapping, macros, dead zones,
 - calibration,
 - host effects over 2.4 GHz,
+- any settings over Bluetooth (the firmware doesn't offer them there; use USB-C or 2.4 GHz). Your
+  desktop's Bluetooth or power panel still shows the battery,
 - live key-depth display (the keyboard doesn't expose it safely).
 
 ---
