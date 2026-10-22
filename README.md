@@ -11,7 +11,7 @@ written in Rust.**
 > [Disclaimer](#disclaimer).
 
 Profiles, firmware lighting with live preview, animated per-key effects, actuation and rapid trigger,
-with an automatic backup before every change.
+and the original settings saved automatically, over USB-C or the 2.4 GHz receiver.
 
 `Rust` · `Linux (Wayland / X11)` · `GPL-3.0-or-later` · `tested on one AULA F75 HE (firmware V1.55)`
 
@@ -50,9 +50,13 @@ with an automatic backup before every change.
   - One-click presets: Competitive, Gaming, Balanced, Typing, Default.
   - *All keys* or a selection, chosen by clicking, Shift+click, a drag box, or shortcuts like WASD.
   - Reset to the factory default.
+- **Wireless (2.4 GHz receiver):** lighting, per-key colours, actuation / rapid trigger and advanced
+  keys all work through the dongle, and the header shows the battery level (⚡ while charging). Host
+  effects need the cable: the receiver doesn't pass the live colour stream.
 - **Safeguards** (they reduce risk; they don't remove it):
-  - A backup is taken automatically before every change.
-  - Every actuation write is verified by reading the keyboard back.
+  - The keyboard's original settings are saved automatically before Aether first changes anything (one
+    file, never overwritten).
+  - Every write is verified by reading the keyboard back.
   - *Restore original* returns the keyboard to how it was before Aether touched it.
 - **CLI:** everything scriptable with the `aether` command.
 
@@ -60,12 +64,13 @@ with an automatic backup before every change.
 
 | Keyboard | USB ID | Status |
 |---|---|---|
-| AULA F75 HE (wired, USB-C) | `38A6:2729` | Tested: lighting · host effects · actuation · rapid trigger |
+| AULA F75 HE (wired, USB-C) | `38A6:2729` | Tested: lighting · host effects · actuation · rapid trigger · advanced keys |
+| AULA F75 HE (2.4 GHz receiver) | `0C45:FEFE` | Tested: lighting · actuation · rapid trigger · advanced keys · battery (no host effects) |
 
 **Not supported (yet):**
-- key remapping, macros, SOCD, dead zones,
+- plain key remapping, macros, dead zones,
 - calibration,
-- the 2.4 GHz dongle,
+- host effects over 2.4 GHz,
 - live key-depth display (the keyboard doesn't expose it safely).
 
 ---
@@ -147,14 +152,23 @@ aether-gui
 - Effects run while the app is open, and **Stop** restores your firmware lighting.
 
 **Backups**
-- A backup is made before every change.
+- The keyboard's original settings are saved automatically before Aether first changes anything. Only
+  that one file is kept; it is never overwritten.
+- **Backup now** saves an extra copy of the current settings whenever you want one.
 - **Restore** any of them, or **Restore original** for the pre-Aether state.
 - Restoring is verified by reading the keyboard back.
+
+**Wireless**
+- Plug in the 2.4 GHz receiver and switch the keyboard to 2.4 GHz mode; Aether finds it like the cable.
+  With both connected, the cable is used.
+- The keyboard sleeps when idle, and only a keypress wakes it. If a change says the keyboard is asleep,
+  press a key and try again.
+- The battery level in the header updates every minute.
 
 ## Command line
 
 ```bash
-aether info                                   # identity + firmware
+aether info                                   # identity, firmware, connection + battery
 aether light get | modes
 aether light set --mode static --color ff0000 --brightness 5
 aether actuation get [--keys W,A,S,D]
@@ -168,10 +182,11 @@ aether keys dks F --press 1.0 --bottom 3.0 --act F:t--- --act G:-t--   # t tap, 
 aether effect rain --colors 00ff80,0080ff --seconds 30   # Ctrl+C stops, lighting restored
 aether backup [--out FILE]
 aether backups                                # oldest first
+aether backups --prune                        # keep only the original, merge and delete the rest
 aether restore [FILE] | aether restore --original
 ```
 
-Every command that changes the keyboard saves a backup first.
+Every command that changes the keyboard makes sure the original backup exists first.
 
 ---
 
@@ -182,6 +197,8 @@ cd aether-he
 git pull
 ./scripts/install.sh
 ```
+
+Re-running `install.sh` also refreshes the udev rule (it asks for your password only if the rule changed).
 
 ## Uninstall
 
@@ -215,7 +232,7 @@ Keyboard settings:
 
 | What | Path |
 |---|---|
-| Backups (taken automatically) | `~/.local/share/aether-he/backups/` |
+| Backups (the original, plus any you save) | `~/.local/share/aether-he/backups/` |
 | Profiles | `~/.config/aether-he/profiles/` |
 | GUI settings | `~/.config/aether-he/gui.json` |
 | Installed app data | `~/.local/share/aether-he/data/` |
@@ -223,7 +240,8 @@ Keyboard settings:
 ## Troubleshooting
 
 **"No keyboard connected"**
-- Use the USB-C cable. The 2.4 GHz dongle isn't supported.
+- Over 2.4 GHz: press a key to wake the keyboard. If you installed Aether before wireless support,
+  re-run `./scripts/install.sh` so the udev rule also covers the receiver (`0c45:fefe`).
 - Close the Aula web driver tab.
 - Make sure the udev rule is installed (`./scripts/install.sh`), then unplug and replug the keyboard.
 - Run `aether info` to see the exact error.
