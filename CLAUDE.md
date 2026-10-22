@@ -67,6 +67,14 @@ Regenerate golden frames after changing the Python reference:
   64 × 16 B, points in 0.1 mm. Write DKS before keys. All wire-verified on the F75 2026-10-21
   (`f75_keytable_rt.py`); F1–F12 base records are empty and "off" restores the pre-Aether record
   (`Backup::original_key_table`). SOCD modes: 3 last input, 1 key 1, 2 key 2, 4 neutral.
+- **2.4 GHz receiver** `0C45:FEFE` "AULA F75 HE Dongle" (PID shared across AULA boards, matched by product
+  string; `links` in boards.json): same HFD protocol on if3, usage page `0xFF60`, **32-byte** reports, so
+  chunks are 24 bytes (`repage()`); each write page waits for its `0x55` ack. `0x10` reports the wired
+  ID 38A6:2729; payload[16] work mode (02 = wireless), [17] battery %, [18] charge status (1/2 =
+  charging). The board sleeps after a short idle time, and requests don't wake it (only a keypress does), so a
+  timeout over RF means asleep. Verified 2026-10-22 (`f75_rf_probe.py`, `f75_rf_write_rt.py`): every
+  table reads, and 0x23/0x27/0x24/0x28/0x22 write and restore byte-exact (`wireless_capabilities`). `0x32`
+  streaming is dropped over RF (MINI 60), so host effects are wired-only; `0x35` RGB565 stream untried.
 - **No live key depth**: `0x66` travel-test is acked but streams nothing; the vendor's depth view uses
   calibration mode, which we never send. `0x60` untried.
 
@@ -74,7 +82,7 @@ Regenerate golden frames after changing the Python reference:
 Lighting ✔ · host effects ✔ (incl. reactive) · stored per-key colours ✔ (wire-verified) · actuation /
 rapid trigger ✔ (stored and felt) · advanced keys DKS/MT/TGL/SOCD/RS ✔ (wire-verified; feel pending) ·
 backups, profiles, reset-to-default ✔. Not implemented / unverified: plain remap UI, macros, dead zones,
-calibration, live depth, 2.4 GHz dongle. DKS "hold" bits are source-only (never captured).
+calibration, live depth, host effects over 2.4 GHz (lighting/actuation/keys/battery over the dongle ✔). DKS "hold" bits are source-only (never captured).
 
 ## Data on disk
 Backups `~/.local/share/aether-he/backups/<board>-<unix>.json`: only the original (pre-Aether) state is

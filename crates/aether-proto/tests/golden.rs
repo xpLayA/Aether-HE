@@ -181,3 +181,15 @@ fn reply_matching_requires_magic_cmd_and_offset() {
     assert!(match_reply(&rep, &req).is_none());
     assert!(match_reply(&req, &req).is_none(), "an echo of our own request is not a reply");
 }
+
+// ---- F75 HE over the 2.4 GHz receiver, captured 2026-10-22 ----
+
+#[test]
+fn f75_dongle_info_request_and_reply() {
+    let fx: Value = serde_json::from_str(include_str!("../../../fixtures/f75/dongle_info.json")).unwrap();
+    let req = repage(&device_info_reads(), 32)[0];
+    assert_eq!(req[..32], unhex(fx["request"].as_str().unwrap())[..]);
+    let i = DeviceInfo::parse(&unhex(fx["reply"].as_str().unwrap())).unwrap();
+    assert_eq!((i.vid, i.pid, i.firmware), (0x38A6, 0x2729, 0x0155), "the wired identity, even over RF");
+    assert_eq!((i.battery, i.charging()), (100, false));
+}

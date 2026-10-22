@@ -14,7 +14,7 @@ mod transport;
 pub use advanced::{Advanced, describe, plan_advanced, usage_name};
 pub use backup::{Backup, Colors, KeyTables, SavedLighting, backups_dir};
 pub use data::{
-    ActuationLimits, Board, Capabilities, Key, Layout, LightMode, LightingInfo, Registry, data_dir,
+    ActuationLimits, Board, Capabilities, Key, Layout, LightMode, LightingInfo, Link, Registry, data_dir,
 };
 pub use error::{Error, Result};
 pub use hfd::Hfd;
@@ -67,26 +67,35 @@ pub trait Keyboard: Send {
 /// The front ends use this rather than [`open_first`].
 pub fn connect() -> Result<(Box<dyn Keyboard>, DeviceInfo)> {
     let mut kb = open_first(&Registry::load()?)?;
-    let info = kb.device_info()?;
+    let info = match kb.device_info() {
+        // The receiver stays enumerated while the keyboard sleeps or is out of range.
+        Err(Error::Timeout { .. }) if kb.board().wireless => {
+            return Err(Error::Hid(format!("{} is not answering through its 2.4 GHz receiver (asleep or off?)", kb.board().name)));
+        }
+        r => r?,
+    };
     Ok((kb, info))
 }
 
-/// Find the first registered, attached board and open it.
+/// Find the first registered, attached board and open it, preferring a
+/// wired link over the dongle when both are present.
 pub fn open_first(reg: &Registry) -> Result<Box<dyn Keyboard>> {
     let api = hidapi::HidApi::new().map_err(Error::hid)?;
     for board in &reg.boards {
-        if api.device_list().any(|d| d.vendor_id() == board.vid && d.product_id() == board.pid) {
-            return open(&api, board.clone());
+        for link in board.all_links() {
+            if api.device_list().any(|d| link.matches(d)) {
+                return open(&api, board.through(&link), &link);
+            }
         }
     }
     Err(Error::NotFound)
 }
 
-fn open(api: &hidapi::HidApi, board: Board) -> Result<Box<dyn Keyboard>> {
+fn open(api: &hidapi::HidApi, board: Board, link: &Link) -> Result<Box<dyn Keyboard>> {
     match board.protocol.as_str() {
         "hfd" => {
             let layout = Layout::load(&board)?;
-            let t = HidTransport::open(api, &board)?;
+            let t = HidTransport::open(api, &board, link)?;
             Ok(Box::new(Hfd::new(t, board, layout)))
         }
         other => Err(Error::Unsupported(format!("protocol {other:?} has no driver"))),

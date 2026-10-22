@@ -45,6 +45,8 @@ pub enum Cmd {
 pub enum Event {
     Connected { board: Board, layout: Layout, info: DeviceInfo },
     Disconnected(String),
+    /// A fresh 0x10 reply (battery) over a wireless link.
+    Info(DeviceInfo),
     Lighting(Lighting),
     /// The per-key colours stored on the board.
     CustomLeds(Box<Colors>),
@@ -76,7 +78,7 @@ impl Worker {
         let (tx, rx) = channel();
         let (etx, events) = channel();
         let live = Arc::new(Mutex::new(None));
-        let state = State { kb: None, rx, tx: etx, effect: None, preview_base: None, live: live.clone() };
+        let state = State { kb: None, rx, tx: etx, effect: None, preview_base: None, live: live.clone(), battery_at: Instant::now() };
         let handle = std::thread::Builder::new().name("aether-device".into()).spawn(move || state.run()).ok();
         Worker { tx, events, live, handle }
     }
@@ -126,9 +128,13 @@ struct State {
     /// Lighting to restore when a preview is cancelled (or the app exits mid-preview).
     preview_base: Option<Lighting>,
     live: Arc<Mutex<Option<Frame>>>,
+    /// Next battery read over a wireless link.
+    battery_at: Instant,
 }
 
 type R<T> = aether_device::Result<T>;
+
+const BATTERY_EVERY: Duration = Duration::from_secs(60);
 
 impl State {
     fn emit(&self, e: Event) {
@@ -156,12 +162,29 @@ impl State {
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             self.tick_effect();
+            self.tick_battery();
         }
         if let Err(e) = self.stop_effect() {
             log::warn!("stopping the effect on exit: {e}");
         }
         if let Err(e) = self.cancel_preview() {
             log::warn!("restoring the lighting after a preview on exit: {e}");
+        }
+    }
+
+    /// Re-read the battery once a minute over a wireless link, when idle. No
+    /// reply means the keyboard is asleep, not gone: the next tick tries again.
+    fn tick_battery(&mut self) {
+        let now = Instant::now();
+        if self.effect.is_some() || now < self.battery_at {
+            return;
+        }
+        let Some(kb) = self.kb.as_mut().filter(|kb| kb.board().wireless) else { return };
+        self.battery_at = now + BATTERY_EVERY;
+        match kb.device_info() {
+            Ok(info) => self.emit(Event::Info(info)),
+            Err(aether_device::Error::Timeout { .. }) => {}
+            Err(e) => self.report::<()>(Err(e), |_| None),
         }
     }
 
@@ -202,7 +225,13 @@ impl State {
             }
             Err(e) => {
                 let lost = matches!(e, aether_device::Error::Hid(_) | aether_device::Error::NotFound);
-                self.emit(Event::Err(e.to_string()));
+                let asleep = matches!(e, aether_device::Error::Timeout { .. })
+                    && self.kb.as_ref().is_some_and(|kb| kb.board().wireless);
+                // Only a keypress wakes the board over 2.4 GHz; requests don't.
+                self.emit(Event::Err(match asleep {
+                    true => "The keyboard is asleep: press a key and try again".into(),
+                    false => e.to_string(),
+                }));
                 if lost {
                     self.effect = None;
                     self.preview_base = None;
@@ -215,6 +244,9 @@ impl State {
     }
 
     fn read_lighting(&mut self) {
+        if !self.kb.as_ref().is_some_and(|kb| kb.board().capabilities.lighting) {
+            return;
+        }
         let r = self.kb().and_then(|kb| kb.lighting());
         match r {
             Ok(l) => self.emit(Event::Lighting(l)),
@@ -232,6 +264,9 @@ impl State {
     }
 
     fn read_actuation(&mut self) {
+        if !self.kb.as_ref().is_some_and(|kb| kb.board().capabilities.actuation) {
+            return;
+        }
         let r = self.kb().and_then(|kb| kb.actuation_table());
         match r {
             Ok(t) => self.emit(Event::Actuation(t)),

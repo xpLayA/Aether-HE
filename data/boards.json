@@ -17,6 +17,25 @@
         "per_key_store": true,
         "advanced_keys": true
       },
+      "links": [
+        {
+          "_comment": "2.4 GHz receiver; PID FEFE is shared by several AULA boards, so the product string decides. Same HFD protocol, 32-byte reports.",
+          "vid": 3141,
+          "pid": 65278,
+          "usage_page": 65376,
+          "frame_len": 32,
+          "wireless": true,
+          "product": "AULA F75 HE Dongle"
+        }
+      ],
+      "wireless_capabilities": {
+        "_comment": "Round-tripped over the dongle 2026-10-22 (docs/context/f75-bringup/f75_rf_write_rt.py): 0x23, 0x27, 0x24, 0x28+0x22 acked and read back byte-exact. host_effects stays false: 0x32 is dropped by the RF bridge (MINI 60 HE PRO, hardware-verified).",
+        "lighting": true,
+        "actuation": true,
+        "rapid_trigger": true,
+        "per_key_store": true,
+        "advanced_keys": true
+      },
       "lighting": {
         "brightness_max": 5,
         "speed_max": 5,

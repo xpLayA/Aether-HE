@@ -9,7 +9,7 @@ use aether_proto::{
     ACT_TABLE_SIZE, ActTable, Actuation, DKS_TABLE_SIZE, DeviceInfo, DksTable, Frame, KEY_SLOTS, KEY_TABLE_SIZE,
     KeyTable, LED_TABLE_SIZE, LEVEL_MAX, dks_reads, key_table_reads,
     LIGHT_MODE_CUSTOM, Lighting, actuation_reads, assemble, custom_led_reads, custom_led_writes, device_info_reads,
-    led_table, light_read, match_reply, mm_to_raw, parse_led_table, stream_clear, stream_frames,
+    led_table, light_read, match_reply, mm_to_raw, parse_led_table, repage, stream_clear, stream_frames,
 };
 
 use crate::{Board, Error, Keyboard, Layout, Result, Transport};
@@ -40,12 +40,17 @@ impl<T: Transport> Hfd<T> {
     }
 
     fn transact(&mut self, req: &Frame) -> Result<Vec<u8>> {
-        self.t.write(req)?;
-        let deadline = Instant::now() + REPLY_TIMEOUT;
-        while Instant::now() < deadline {
-            let raw = self.t.read(50)?;
-            if let Some(r) = match_reply(&raw, req) {
-                return Ok(r.to_vec());
+        // The 2.4 GHz link loses the odd request; reads and table pages are
+        // both safe to repeat.
+        let tries = if self.board.wireless { 2 } else { 1 };
+        for _ in 0..tries {
+            self.t.write(req)?;
+            let deadline = Instant::now() + REPLY_TIMEOUT;
+            while Instant::now() < deadline {
+                let raw = self.t.read(50)?;
+                if let Some(r) = match_reply(&raw, req) {
+                    return Ok(r.to_vec());
+                }
             }
         }
         Err(Error::Timeout { cmd: req[1], offset: req[3] as u16 | (req[4] as u16) << 8 })
@@ -56,11 +61,34 @@ impl<T: Transport> Hfd<T> {
     fn read_table(&mut self, frames: &[Frame], size: usize) -> Result<Vec<u8>> {
         self.drain();
         let mut table = vec![0u8; size];
-        for f in frames {
+        for f in &self.paged(frames) {
             let rep = self.transact(f)?;
             assemble(&mut table, &rep);
         }
         Ok(table)
+    }
+
+    /// `frames` cut to the link's report size (unchanged when wired).
+    fn paged(&self, frames: &[Frame]) -> Vec<Frame> {
+        repage(frames, self.t.frame_len())
+    }
+
+    /// Send a write pass. Over 2.4 GHz each page waits for its `0x55` ack (as
+    /// the vendor driver does there), so a sleeping keyboard fails the write at
+    /// the first page instead of silently losing some of them.
+    fn write_all(&mut self, frames: &[Frame]) -> Result<()> {
+        if self.board.wireless {
+            self.drain();
+        }
+        for f in self.paged(frames) {
+            if self.board.wireless {
+                self.transact(&f)?;
+            } else {
+                self.t.write(&f)?;
+                sleep(WRITE_GAP);
+            }
+        }
+        Ok(())
     }
 
     fn require(&self, ok: bool, what: &str) -> Result<()> {
@@ -115,9 +143,11 @@ impl<T: Transport> Keyboard for Hfd<T> {
 
     fn device_info(&mut self) -> Result<DeviceInfo> {
         self.drain();
-        let rep = self.transact(&device_info_reads()[0])?;
+        let rep = self.transact(&self.paged(&device_info_reads())[0])?;
         let info = DeviceInfo::parse(&rep).ok_or_else(|| Error::BadReply("device info".into()))?;
-        if (info.vid, info.pid) != (self.board.vid, self.board.pid) {
+        // Over a receiver the board may report the receiver's identity or its own.
+        let known = self.board.all_links().iter().any(|l| (l.vid, l.pid) == (info.vid, info.pid));
+        if !known {
             return Err(Error::BadReply(format!(
                 "board reports {:04X}:{:04X}, expected {:04X}:{:04X}",
                 info.vid, info.pid, self.board.vid, self.board.pid
@@ -145,7 +175,7 @@ impl<T: Transport> Keyboard for Hfd<T> {
                 info.brightness_max, info.speed_max
             )));
         }
-        self.t.write(&l.write_frame())
+        self.write_all(&[l.write_frame()])
     }
 
     fn actuation_table(&mut self) -> Result<ActTable> {
@@ -156,11 +186,7 @@ impl<T: Transport> Keyboard for Hfd<T> {
 
     fn write_actuation_table(&mut self, table: &ActTable) -> Result<()> {
         self.require(self.board.capabilities.actuation, "actuation")?;
-        for f in table.write_frames() {
-            self.t.write(&f)?;
-            sleep(WRITE_GAP);
-        }
-        Ok(())
+        self.write_all(&table.write_frames())
     }
 
     fn validate_actuation(&self, indices: &[usize], setting: Actuation) -> Result<()> {
@@ -188,10 +214,7 @@ impl<T: Transport> Keyboard for Hfd<T> {
 
     fn set_custom_leds(&mut self, colors: &[[u8; 3]; KEY_SLOTS]) -> Result<()> {
         self.require(self.board.capabilities.per_key_store, "stored per-key colours")?;
-        for f in custom_led_writes(&led_table(colors)) {
-            self.t.write(&f)?;
-            sleep(WRITE_GAP);
-        }
+        self.write_all(&custom_led_writes(&led_table(colors)))?;
         sleep(Duration::from_millis(50));
         if self.custom_leds()? != *colors {
             return Err(Error::BadReply("per-key colour read-back does not match what was written".into()));
@@ -206,10 +229,7 @@ impl<T: Transport> Keyboard for Hfd<T> {
 
     fn write_key_table(&mut self, t: &KeyTable) -> Result<()> {
         self.require(self.board.capabilities.advanced_keys, "key records")?;
-        for f in t.write_frames()? {
-            self.t.write(&f)?;
-            sleep(WRITE_GAP);
-        }
+        self.write_all(&t.write_frames()?)?;
         sleep(Duration::from_millis(50));
         if self.key_table()? != *t {
             return Err(Error::BadReply("key table read-back does not match what was written".into()));
@@ -224,10 +244,7 @@ impl<T: Transport> Keyboard for Hfd<T> {
 
     fn write_dks_table(&mut self, t: &DksTable) -> Result<()> {
         self.require(self.board.capabilities.advanced_keys, "DKS")?;
-        for f in t.write_frames() {
-            self.t.write(&f)?;
-            sleep(WRITE_GAP);
-        }
+        self.write_all(&t.write_frames())?;
         sleep(Duration::from_millis(50));
         if self.dks_table()? != *t {
             return Err(Error::BadReply("DKS table read-back does not match what was written".into()));

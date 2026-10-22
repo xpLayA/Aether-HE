@@ -494,6 +494,11 @@ impl State {
                     self.reload_profiles();
                     self.resolve_active = true;
                 }
+                Event::Info(i) => {
+                    if let Conn::Up { info, .. } = &mut self.conn {
+                        *info = i;
+                    }
+                }
                 Event::Disconnected(why) => {
                     self.conn = Conn::Down(why);
                     self.running = None;
@@ -604,6 +609,9 @@ impl State {
                 g.set_connection(1);
                 g.set_board_name(board.name.clone().into());
                 g.set_firmware(format!("firmware V{:X}.{:02X}", info.firmware >> 8, info.firmware & 0xFF).into());
+                g.set_wireless(board.wireless);
+                g.set_battery(info.battery.min(100) as i32);
+                g.set_charging(info.charging());
             }
             Conn::Down(why) => {
                 g.set_connection(2);
@@ -1020,6 +1028,7 @@ impl State {
         let rows = vec![
             ("USB ID", format!("{:04X}:{:04X}", info.vid, info.pid)),
             ("Firmware", format!("V{:X}.{:02X}", info.firmware >> 8, info.firmware & 0xFF)),
+            ("Connection", (if board.wireless { "2.4 GHz receiver" } else { "USB cable" }).into()),
             ("Keys", layout.keys.len().to_string()),
             ("Host effects", format!("up to {} fps", board.lighting.host_fps)),
             ("Actuation range", format!("{:.2}–{:.2} mm, rapid trigger {:.2}–{:.2} mm", a.travel_mm[0], a.travel_mm[1], a.rt_mm[0], a.rt_mm[1])),

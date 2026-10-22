@@ -58,6 +58,10 @@ export global UiState {
     in property <int> connection;
     in property <string> board-name;
     in property <string> firmware;
+    // Connected through the 2.4 GHz receiver: show the battery.
+    in property <bool> wireless;
+    in property <int> battery;
+    in property <bool> charging;
     in property <string> down-reason;
     in property <bool> busy;
     in property <string> effect-running;

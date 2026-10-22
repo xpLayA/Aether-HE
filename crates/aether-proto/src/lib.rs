@@ -168,25 +168,58 @@ fn header(cmd: Cmd, len: usize, offset: usize, last: bool) -> Frame {
 }
 
 pub(crate) fn paged_reads(cmd: Cmd, size: usize) -> Vec<Frame> {
+    paged_reads_by(cmd, size, PAGE)
+}
+
+fn paged_reads_by(cmd: Cmd, size: usize, page: usize) -> Vec<Frame> {
     (0..size)
-        .step_by(PAGE)
+        .step_by(page)
         .map(|off| {
-            let len = PAGE.min(size - off);
+            let len = page.min(size - off);
             header(cmd, len, off, off + len >= size)
         })
         .collect()
 }
 
 pub(crate) fn paged_writes(cmd: Cmd, data: &[u8]) -> Vec<Frame> {
+    paged_writes_by(cmd, data, PAGE)
+}
+
+fn paged_writes_by(cmd: Cmd, data: &[u8], page: usize) -> Vec<Frame> {
     (0..data.len())
-        .step_by(PAGE)
+        .step_by(page)
         .map(|off| {
-            let len = PAGE.min(data.len() - off);
+            let len = page.min(data.len() - off);
             let mut f = header(cmd, len, off, off + len >= data.len());
             f[PAYLOAD_START..PAYLOAD_START + len].copy_from_slice(&data[off..off + len]);
             f
         })
         .collect()
+}
+
+/// The same transfer paged for a smaller frame: `frame_len` is 32 on the
+/// 2.4 GHz dongle (`chunk = frame_len - 8`, as the vendor SDK computes it).
+/// `frames` is one command's pass as built by this crate; the table is
+/// rebuilt from it and cut again, so offsets and the last-chunk flag come
+/// out exactly as the vendor driver sends them.
+pub fn repage(frames: &[Frame], frame_len: usize) -> Vec<Frame> {
+    let page = frame_len.saturating_sub(PAYLOAD_START).min(PAGE);
+    let fits = |f: &Frame| (f[2] as usize) <= page;
+    if frames.iter().all(fits) {
+        return frames.to_vec();
+    }
+    let Some(cmd) = Cmd::from_byte(frames[0][1]) else { return frames.to_vec() };
+    let off = |f: &Frame| f[3] as usize | (f[4] as usize) << 8;
+    let size = frames.iter().map(|f| off(f) + f[2] as usize).max().unwrap_or(0);
+    if cmd.is_read() {
+        return paged_reads_by(cmd, size, page);
+    }
+    let mut data = vec![0u8; size];
+    for f in frames {
+        let len = f[2] as usize;
+        data[off(f)..off(f) + len].copy_from_slice(&f[PAYLOAD_START..PAYLOAD_START + len]);
+    }
+    paged_writes_by(cmd, &data, page)
 }
 
 // ---------------------------------------------------------------- reads ----
@@ -249,6 +282,11 @@ pub struct DeviceInfo {
     pub pid: u16,
     /// BCD-ish firmware version, e.g. 0x0153 = V1.53.
     pub firmware: u16,
+    /// Battery percent (payload[17]). Only meaningful over the 2.4 GHz dongle;
+    /// wired boards report junk here.
+    pub battery: u8,
+    /// Charge status (payload[18]): the vendor treats 1 and 2 as charging.
+    pub charge_status: u8,
 }
 
 impl DeviceInfo {
@@ -259,7 +297,12 @@ impl DeviceInfo {
             return None;
         }
         let le = |i: usize| r[i] as u16 | (r[i + 1] as u16) << 8;
-        Some(DeviceInfo { vid: le(12), pid: le(14), firmware: le(16) })
+        let at = |i: usize| r.get(i).copied().unwrap_or(0);
+        Some(DeviceInfo { vid: le(12), pid: le(14), firmware: le(16), battery: at(25), charge_status: at(26) })
+    }
+
+    pub fn charging(&self) -> bool {
+        matches!(self.charge_status, 1 | 2)
     }
 }
 
@@ -495,6 +538,41 @@ pub fn stream_clear() -> Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dongle_paging_matches_the_vendor_capture() {
+        // MINI 60 HE PRO over its dongle: 1008-byte actuation table in 42 chunks of 0x18.
+        let mut t = ActTable::default();
+        t.0[ACT_TABLE_SIZE - 1] = 7;
+        let frames = repage(&t.write_frames(), 32);
+        assert_eq!(frames.len(), 42);
+        assert_eq!(frames[0][..8], [0xAA, 0x27, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(frames[41][..8], [0xAA, 0x27, 0x18, 0xD8, 0x03, 0x00, 0x01, 0x00]);
+        assert_eq!(frames[41][8 + 23], 7, "payload follows its offset");
+        assert!(frames[..41].iter().all(|f| f[6] == 0));
+        // 0x10 read: 0x18 + 0x18 + 0x08, last-chunk flag on the third.
+        let info = repage(&device_info_reads(), 32);
+        let heads: Vec<_> = info.iter().map(|f| f[..8].to_vec()).collect();
+        assert_eq!(heads, [
+            vec![0xAA, 0x10, 0x18, 0x00, 0, 0, 0, 0],
+            vec![0xAA, 0x10, 0x18, 0x18, 0, 0, 0, 0],
+            vec![0xAA, 0x10, 0x08, 0x30, 0, 0, 1, 0],
+        ]);
+        // Single-frame blocks already fit.
+        let l = Lighting { mode: 1, rgb: [1, 2, 3], alpha: 0xFF, color_mode: 0, brightness: 5, speed: 4, reserved: [0; 3] };
+        assert_eq!(repage(&[l.write_frame()], 32), [l.write_frame()]);
+        assert_eq!(repage(&actuation_reads(), 64), actuation_reads(), "wired is unchanged");
+    }
+
+    #[test]
+    fn device_info_carries_battery() {
+        // Dongle handshake frame 3 (MINI 60 HE PRO): V1.53, battery 100 %, not charging.
+        let rep = [0x55, 0x10, 0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0x92, 0x45, 0x0C, 0xA2, 0x80, 0x53, 0x01, 0, 0,
+                   0x66, 0x01, 0x0C, 0x11, 0x02, 0x64, 0x00, 0, 0x10, 0, 0, 0];
+        let i = DeviceInfo::parse(&rep).unwrap();
+        assert_eq!((i.vid, i.pid, i.firmware), (0x0C45, 0x80A2, 0x0153));
+        assert_eq!((i.battery, i.charging()), (100, false));
+    }
 
     #[test]
     fn custom_led_table_round_trips_through_its_writes() {

@@ -245,6 +245,9 @@ fn run(cli: Cli) -> Result<()> {
             let mut kb = connect()?;
             let i = kb.device_info()?;
             println!("{} ({:04X}:{:04X}), firmware V{:X}.{:02X}", kb.board().name, i.vid, i.pid, i.firmware >> 8, i.firmware & 0xFF);
+            if kb.board().wireless {
+                println!("connection: 2.4 GHz receiver, battery {}%{}", i.battery, if i.charging() { " (charging)" } else { "" });
+            }
             println!("keys: {}  backups: {}", kb.layout().keys.len(), backups_dir()?.display());
         }
         Cmd::Backup { out } => {

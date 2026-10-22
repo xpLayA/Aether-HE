@@ -208,6 +208,10 @@ export component AppWindow inherits Window {
                         color: UiState.connection == 2 ? Theme.danger : Theme.text;
                     }
                     if UiState.connection == 1: Text { text: UiState.firmware; color: Theme.muted; vertical-alignment: center; }
+                    if UiState.connection == 1 && UiState.wireless: Chip {
+                        text: "2.4 GHz · " + (UiState.charging ? "⚡ " : "") + UiState.battery + "%";
+                        y: (parent.height - self.height) / 2;
+                    }
                     if UiState.busy: Spinner { width: 18px; height: 18px; y: (parent.height - self.height) / 2; indeterminate: true; }
                     Rectangle { horizontal-stretch: 1; }
                     if UiState.effect-running != "": Chip { text: "Effect: " + UiState.effect-running; y: (parent.height - self.height) / 2; }
