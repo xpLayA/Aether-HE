@@ -4,6 +4,7 @@
 
 mod advanced;
 mod backup;
+mod bluetooth;
 mod data;
 mod error;
 mod hfd;
@@ -12,9 +13,10 @@ mod profile;
 mod transport;
 
 pub use advanced::{Advanced, describe, plan_advanced, usage_name};
+pub use bluetooth::BtKeyboard;
 pub use backup::{Backup, Colors, KeyTables, SavedLighting, backups_dir};
 pub use data::{
-    ActuationLimits, Board, Capabilities, Key, Layout, LightMode, LightingInfo, Link, Registry, data_dir,
+    ActuationLimits, Board, BtId, Capabilities, Key, Layout, LightMode, LightingInfo, Link, Registry, data_dir,
 };
 pub use error::{Error, Result};
 pub use hfd::Hfd;
@@ -66,7 +68,14 @@ pub trait Keyboard: Send {
 /// Open the first attached board and confirm it answers with its own identity.
 /// The front ends use this rather than [`open_first`].
 pub fn connect() -> Result<(Box<dyn Keyboard>, DeviceInfo)> {
-    let mut kb = open_first(&Registry::load()?)?;
+    let reg = Registry::load()?;
+    let mut kb = match open_first(&reg) {
+        Err(Error::NotFound) => {
+            let api = hidapi::HidApi::new().map_err(Error::hid)?;
+            return Err(bluetooth::find(&api, &reg).map_or(Error::NotFound, |bt| Error::BluetoothOnly(Box::new(bt))));
+        }
+        r => r?,
+    };
     let info = match kb.device_info() {
         // The receiver stays enumerated while the keyboard sleeps or is out of range.
         Err(Error::Timeout { .. }) if kb.board().wireless => {

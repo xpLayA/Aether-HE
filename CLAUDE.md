@@ -78,7 +78,10 @@ Regenerate golden frames after changing the Python reference:
 - **Bluetooth LE** (channel 1, "AULA F75 HE-1", HID `0005:0C45:FEFE`, the receiver's IDs): the report map
   has only keyboard/mouse/consumer/digitizer collections, no vendor collection and no feature reports
   (`fixtures/f75/bt_report_descriptor.txt`, 2026-10-22). No control channel over BT, so typing only.
-  The battery comes from the GATT Battery Service (BlueZ → UPower), not 0x10.
+  The battery comes from the GATT Battery Service (BlueZ → UPower), not 0x10. Aether recognises it anyway
+  (`aether-device/src/bluetooth.rs`: hidapi bus Bluetooth + `bluetooth.name_prefix`, never opened; battery
+  from `org.bluez.Battery1` over zbus). `connect()` returns `Error::BluetoothOnly`, the GUI shows
+  connection state 3 and keeps retrying every 5 s, so it picks up the cable or receiver as soon as one appears.
 - **No live key depth**: `0x66` travel-test is acked but streams nothing; the vendor's depth view uses
   calibration mode, which we never send. `0x60` untried.
 

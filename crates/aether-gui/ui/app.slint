@@ -171,10 +171,10 @@ export component AppWindow inherits Window {
                             spacing: 8px;
                             Rectangle {
                                 width: 8px; height: 8px; y: (parent.height - self.height) / 2; border-radius: 4px;
-                                background: UiState.connection == 1 ? Theme.ok : UiState.connection == 0 ? Theme.warn : Theme.danger;
+                                background: UiState.connection == 1 ? Theme.ok : UiState.connection == 0 || UiState.connection == 3 ? Theme.warn : Theme.danger;
                             }
                             Text {
-                                text: UiState.connection == 1 ? "Connected" : UiState.connection == 0 ? "Connecting…" : "No keyboard";
+                                text: UiState.connection == 1 ? "Connected" : UiState.connection == 0 ? "Connecting…" : UiState.connection == 3 ? "Bluetooth (typing only)" : "No keyboard";
                                 color: Theme.text; font-size: 13px; font-weight: 600;
                             }
                         }
@@ -203,7 +203,7 @@ export component AppWindow inherits Window {
                     padding-right: 20px;
                     spacing: 12px;
                     Text {
-                        text: UiState.connection == 1 ? UiState.board-name : UiState.connection == 0 ? "Looking for your keyboard…" : "No keyboard connected";
+                        text: UiState.connection == 1 || UiState.connection == 3 ? UiState.board-name : UiState.connection == 0 ? "Looking for your keyboard…" : "No keyboard connected";
                         font-size: 17px; font-weight: 600; vertical-alignment: center;
                         color: UiState.connection == 2 ? Theme.danger : Theme.text;
                     }
@@ -212,6 +212,12 @@ export component AppWindow inherits Window {
                         text: "2.4 GHz · " + (UiState.charging ? "⚡ " : "") + UiState.battery + "%";
                         y: (parent.height - self.height) / 2;
                     }
+                    if UiState.connection == 3: Chip {
+                        text: "Bluetooth" + (UiState.battery >= 0 ? " · " + UiState.battery + "%" : "");
+                        tone: Theme.warn;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    if UiState.connection == 3: Text { text: "typing only: settings need USB-C or 2.4 GHz"; color: Theme.muted; vertical-alignment: center; }
                     if UiState.busy: Spinner { width: 18px; height: 18px; y: (parent.height - self.height) / 2; indeterminate: true; }
                     Rectangle { horizontal-stretch: 1; }
                     if UiState.effect-running != "": Chip { text: "Effect: " + UiState.effect-running; y: (parent.height - self.height) / 2; }

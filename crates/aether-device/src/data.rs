@@ -59,9 +59,20 @@ pub struct Board {
     /// the board is opened through one.
     #[serde(default)]
     pub wireless_capabilities: Capabilities,
+    /// How the board names itself over Bluetooth (typing only there).
+    #[serde(default)]
+    pub bluetooth: Option<BtId>,
     /// Set when this board was opened through a wireless link.
     #[serde(skip)]
     pub wireless: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct BtId {
+    pub vid: u16,
+    pub pid: u16,
+    /// Start of the BLE name; the firmware appends the channel ("AULA F75 HE-1").
+    pub name_prefix: String,
 }
 
 /// One USB identity a board can show up as.
@@ -249,5 +260,6 @@ mod tests {
         let rf = f75.through(dongle);
         assert!(rf.wireless && rf.capabilities.actuation);
         assert!(!rf.capabilities.host_effects, "0x32 does not cross the RF bridge");
+        assert_eq!(f75.bluetooth.as_ref().unwrap().name_prefix, "AULA F75 HE-");
     }
 }

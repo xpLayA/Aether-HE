@@ -28,6 +28,12 @@
           "product": "AULA F75 HE Dongle"
         }
       ],
+      "bluetooth": {
+        "_comment": "BLE: typing only, no vendor collection in the report map (fixtures/f75/bt_report_descriptor.txt). Same VID/PID as the receiver; the name ends in the BT channel.",
+        "vid": 3141,
+        "pid": 65278,
+        "name_prefix": "AULA F75 HE-"
+      },
       "wireless_capabilities": {
         "_comment": "Round-tripped over the dongle 2026-10-22 (docs/context/f75-bringup/f75_rf_write_rt.py): 0x23, 0x27, 0x24, 0x28+0x22 acked and read back byte-exact. host_effects stays false: 0x32 is dropped by the RF bridge (MINI 60 HE PRO, hardware-verified).",
         "lighting": true,

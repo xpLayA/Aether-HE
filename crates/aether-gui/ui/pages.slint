@@ -646,7 +646,7 @@ export component BackupsPage inherits VerticalLayout {
 
 export component DevicePage inherits VerticalLayout {
     spacing: 16px;
-    PageTitle { title: "Device"; subtitle: UiState.connection == 1 ? UiState.board-name : "No keyboard connected"; }
+    PageTitle { title: "Device"; subtitle: UiState.connection == 1 || UiState.connection == 3 ? UiState.board-name : "No keyboard connected"; }
     if UiState.connection == 1: Card {
         title: "Keyboard";
         for r in UiState.device-info: HorizontalLayout {
@@ -658,7 +658,12 @@ export component DevicePage inherits VerticalLayout {
     if UiState.connection == 2: Card {
         title: "Can't reach the keyboard";
         subtitle: UiState.down-reason;
-        Text { color: Theme.text; wrap: word-wrap; text: "Check that the keyboard is plugged in with the cable (not the 2.4 GHz dongle), that the Aula web driver isn't open in a browser, and that the udev rule is installed (./scripts/install.sh). Then replug the keyboard and press Reconnect."; }
+        Text { color: Theme.text; wrap: word-wrap; text: "Check that the keyboard is plugged in with the cable or switched to 2.4 GHz with the receiver plugged in (press a key to wake it), that the Aula web driver isn't open in a browser, and that the udev rule is installed (./scripts/install.sh). Then press Reconnect."; }
+    }
+    if UiState.connection == 3: Card {
+        title: "Connected over Bluetooth";
+        subtitle: UiState.battery >= 0 ? "Battery " + UiState.battery + "%" : "Battery level not reported";
+        Text { color: Theme.text; wrap: word-wrap; text: "Typing works, but the keyboard offers no settings over Bluetooth. To change lighting, actuation or keys, plug in the USB-C cable, or switch the keyboard to 2.4 GHz with the receiver plugged in. Aether picks it up within a few seconds, and your settings stay on the keyboard when you go back to Bluetooth."; }
     }
     Card {
         title: "Running in the background";

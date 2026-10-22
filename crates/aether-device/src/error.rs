@@ -22,6 +22,8 @@ pub enum Error {
     Data(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("{} is connected over Bluetooth{}: typing only. Settings need the USB-C cable or the 2.4 GHz receiver", .0.board.name, .0.battery.map(|b| format!(" (battery {b}%)")).unwrap_or_default())]
+    BluetoothOnly(Box<crate::BtKeyboard>),
 }
 
 impl Error {

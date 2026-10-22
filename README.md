@@ -66,7 +66,7 @@ and the original settings saved automatically, over USB-C or the 2.4 GHz receive
 |---|---|---|
 | AULA F75 HE (wired, USB-C) | `38A6:2729` | Tested: lighting · host effects · actuation · rapid trigger · advanced keys |
 | AULA F75 HE (2.4 GHz receiver) | `0C45:FEFE` | Tested: lighting · actuation · rapid trigger · advanced keys · battery (no host effects) |
-| AULA F75 HE (Bluetooth) | — | Typing only: the keyboard exposes no settings channel over Bluetooth |
+| AULA F75 HE (Bluetooth) | `0C45:FEFE` (BLE) | Recognised, battery shown; typing only: the keyboard exposes no settings channel over Bluetooth |
 
 **Not supported (yet):**
 - plain key remapping, macros, dead zones,
@@ -167,6 +167,9 @@ aether-gui
 - The keyboard sleeps when idle, and only a keypress wakes it. If a change says the keyboard is asleep,
   press a key and try again.
 - The battery level in the header updates every minute.
+- Over **Bluetooth**, Aether recognises the keyboard and shows its battery, but it can't change settings
+  there (the keyboard doesn't offer them). Plug in the cable or switch to 2.4 GHz, and Aether takes
+  over within a few seconds. Settings stay on the keyboard when you go back to Bluetooth.
 
 ## Command line
 

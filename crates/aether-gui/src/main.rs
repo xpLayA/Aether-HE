@@ -219,6 +219,8 @@ enum Conn {
     Connecting,
     Up { board: Board, layout: Layout, info: DeviceInfo },
     Down(String),
+    /// Connected over Bluetooth only: no settings channel there.
+    Bluetooth { name: String, battery: Option<u8> },
 }
 
 enum Confirm {
@@ -499,6 +501,10 @@ impl State {
                         *info = i;
                     }
                 }
+                Event::Bluetooth { name, battery } => {
+                    self.conn = Conn::Bluetooth { name, battery };
+                    self.running = None;
+                }
                 Event::Disconnected(why) => {
                     self.conn = Conn::Down(why);
                     self.running = None;
@@ -539,10 +545,17 @@ impl State {
         }
         // Come back by ourselves after an unplug or a suspend; reconnecting
         // restarts the active profile's effect (resolve_active).
-        if matches!(self.conn, Conn::Down(_)) && !self.busy && self.last_connect.elapsed() >= RECONNECT_EVERY {
+        // Over Bluetooth keep retrying too (that refreshes the battery and picks up
+        // the cable or receiver), without flashing "Connecting" every time.
+        let bt = matches!(self.conn, Conn::Bluetooth { .. });
+        if (bt || matches!(self.conn, Conn::Down(_))) && !self.busy && self.last_connect.elapsed() >= RECONNECT_EVERY {
             self.last_connect = Instant::now();
-            self.conn = Conn::Connecting;
-            self.send(Cmd::Connect);
+            if bt {
+                self.worker.send(Cmd::Connect);
+            } else {
+                self.conn = Conn::Connecting;
+                self.send(Cmd::Connect);
+            }
             changed = true;
         }
         // Trailing debounce: the last edit is always shown, at most every PREVIEW_GAP.
@@ -616,6 +629,14 @@ impl State {
             Conn::Down(why) => {
                 g.set_connection(2);
                 g.set_down_reason(why.clone().into());
+            }
+            Conn::Bluetooth { name, battery } => {
+                g.set_connection(3);
+                g.set_board_name(name.clone().into());
+                g.set_wireless(true);
+                g.set_battery(battery.map_or(-1, |b| b.min(100) as i32));
+                g.set_charging(false);
+                g.set_down_reason("Typing only over Bluetooth: connect the USB-C cable or the 2.4 GHz receiver to change settings".into());
             }
         }
         g.set_busy(self.busy);

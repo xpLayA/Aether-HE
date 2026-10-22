@@ -242,7 +242,17 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Info => {
-            let mut kb = connect()?;
+            let mut kb = match aether_device::connect() {
+                Err(aether_device::Error::BluetoothOnly(bt)) => {
+                    println!("{} ({})", bt.board.name, bt.name);
+                    println!("connection: Bluetooth (typing only; settings need the USB-C cable or the 2.4 GHz receiver)");
+                    if let Some(b) = bt.battery {
+                        println!("battery: {b}%");
+                    }
+                    return Ok(());
+                }
+                r => r.context("could not connect to the keyboard")?.0,
+            };
             let i = kb.device_info()?;
             println!("{} ({:04X}:{:04X}), firmware V{:X}.{:02X}", kb.board().name, i.vid, i.pid, i.firmware >> 8, i.firmware & 0xFF);
             if kb.board().wireless {
