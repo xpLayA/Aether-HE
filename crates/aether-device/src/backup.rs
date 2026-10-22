@@ -194,9 +194,85 @@ impl Backup {
         Ok(())
     }
 
-    /// Capture and save to [`backups_dir`]; returns the file written.
+    /// Make sure the original (pre-Aether) backup exists before a change;
+    /// returns its path. Only the original is kept, so this writes only when
+    /// there is none yet or it lacks a section the board has.
     pub fn snapshot(kb: &mut dyn Keyboard) -> Result<PathBuf> {
-        Backup::capture(kb)?.save_in(&backups_dir()?)
+        Backup::ensure_original_in(&backups_dir()?, kb, None)
+    }
+
+    /// [`Backup::snapshot`] in `dir`. `lighting` stands in for the board's
+    /// current lighting when the original is first created (mid-preview the
+    /// board shows the preview, not what was there before).
+    pub fn ensure_original_in(dir: &Path, kb: &mut dyn Keyboard, lighting: Option<Lighting>) -> Result<PathBuf> {
+        let Some(path) = list_in(dir, &kb.board().slug).into_iter().next().map(|(_, p)| p) else {
+            let mut b = Backup::capture(kb)?;
+            if let Some(l) = lighting {
+                b.lighting = l.into();
+            }
+            return b.save_in(dir);
+        };
+        let mut b = Backup::load(&path)?;
+        let caps = kb.board().capabilities.clone();
+        let mut changed = false;
+        if b.custom_leds.is_none() && caps.per_key_store {
+            b.custom_leds = Some(colors_hex(&kb.custom_leds()?));
+            changed = true;
+        }
+        if (b.keys.is_none() || b.dks.is_none()) && caps.advanced_keys {
+            (b.keys, b.dks) = KeyTables::to_hex(KeyTables::read(kb)?.as_ref());
+            changed = true;
+        }
+        if changed {
+            b.save_to(&path)?;
+        }
+        Ok(path)
+    }
+
+    /// The oldest backup for `board` in `dir`, with each section it lacks
+    /// (per-key colours, key tables) taken from the oldest backup that has it:
+    /// every change backed up first, so that is the section before Aether
+    /// touched it.
+    pub fn consolidate_original_in(dir: &Path, board: &str) -> Result<Option<Backup>> {
+        let mut all = list_in(dir, board).into_iter();
+        let Some((_, first)) = all.next() else { return Ok(None) };
+        let mut b = Backup::load(&first)?;
+        for (_, p) in all {
+            if b.custom_leds.is_some() && b.keys.is_some() && b.dks.is_some() {
+                break;
+            }
+            let o = Backup::load(&p)?;
+            if b.custom_leds.is_none() {
+                b.custom_leds = o.custom_leds;
+            }
+            if (b.keys.is_none() || b.dks.is_none()) && o.keys.is_some() && o.dks.is_some() {
+                (b.keys, b.dks) = (o.keys, o.dks);
+            }
+        }
+        Ok(Some(b))
+    }
+
+    /// Keep only the original backup for `board` (consolidated, see
+    /// [`Backup::consolidate_original_in`]) and delete the others. Returns the
+    /// file kept and how many were deleted.
+    pub fn prune(board: &str) -> Result<Option<(PathBuf, usize)>> {
+        Backup::prune_in(&backups_dir()?, board)
+    }
+
+    pub fn prune_in(dir: &Path, board: &str) -> Result<Option<(PathBuf, usize)>> {
+        let Some(b) = Backup::consolidate_original_in(dir, board)? else { return Ok(None) };
+        let mut all = list_in(dir, board).into_iter().map(|(_, p)| p);
+        let keep = all.next().expect("consolidated from an existing backup");
+        b.save_to(&keep)?;
+        if Backup::load(&keep)? != b {
+            return Err(Error::Data(format!("{} did not read back as written; nothing deleted", keep.display())));
+        }
+        let mut n = 0;
+        for p in all {
+            std::fs::remove_file(&p)?;
+            n += 1;
+        }
+        Ok(Some((keep, n)))
     }
 
     pub fn load(path: &Path) -> Result<Backup> {
@@ -305,6 +381,68 @@ mod tests {
         assert_ne!(Backup::load(&p1).unwrap().actuation, Backup::load(&p2).unwrap().actuation);
         let order: Vec<PathBuf> = list_in(&dir, &b.board).into_iter().map(|(_, p)| p).collect();
         assert_eq!(order, [p1, p2], "the later save sorts last");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn tmp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("aether-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        dir
+    }
+
+    #[test]
+    fn snapshot_keeps_only_the_original() {
+        let dir = tmp("orig");
+        let mut kb = f75(FakeBoard::new());
+        let p1 = Backup::ensure_original_in(&dir, &mut kb, None).unwrap();
+        let before = Backup::load(&p1).unwrap();
+        kb.set_actuation(&[34], Actuation::Fixed { travel_mm: 2.0 }).unwrap();
+        let p2 = Backup::ensure_original_in(&dir, &mut kb, None).unwrap();
+        assert_eq!(p1, p2);
+        assert_eq!(list_in(&dir, &before.board).len(), 1, "no new file per change");
+        assert_eq!(Backup::load(&p2).unwrap(), before, "the original is never overwritten");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn snapshot_fills_in_missing_sections() {
+        let dir = tmp("fill");
+        let mut kb = f75(FakeBoard::new());
+        let mut old = Backup::capture(&mut kb).unwrap();
+        (old.custom_leds, old.keys, old.dks) = (None, None, None);
+        let p = old.save_in(&dir).unwrap();
+        Backup::ensure_original_in(&dir, &mut kb, None).unwrap();
+        let b = Backup::load(&p).unwrap();
+        let now = Backup { created_unix: old.created_unix, ..Backup::capture(&mut kb).unwrap() };
+        assert_eq!(b, now, "missing sections read from the board, the rest kept");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn prune_merges_sections_from_the_oldest_that_has_them() {
+        let dir = tmp("prune");
+        let mut kb = f75(FakeBoard::new());
+        let full = Backup::capture(&mut kb).unwrap();
+        let mut a = full.clone();
+        (a.created_unix, a.custom_leds, a.keys, a.dks) = (10, None, None, None);
+        let mut b = full.clone();
+        (b.created_unix, b.keys, b.dks) = (20, None, None);
+        b.actuation = "00".repeat(aether_proto::ACT_TABLE_SIZE - 1) + "07";
+        let mut c = full.clone();
+        c.created_unix = 30;
+        let mut d = full.clone();
+        d.created_unix = 40;
+        d.custom_leds = Some("11".repeat(LED_TABLE_SIZE));
+        for x in [&a, &b, &c, &d] {
+            x.save_in(&dir).unwrap();
+        }
+        let (keep, n) = Backup::prune_in(&dir, &full.board).unwrap().unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(list_in(&dir, &full.board).len(), 1);
+        let o = Backup::load(&keep).unwrap();
+        assert_eq!((o.created_unix, &o.actuation), (10, &a.actuation), "lighting/actuation from the oldest");
+        assert_eq!(o.custom_leds, b.custom_leds, "colours from the first backup with them");
+        assert_eq!((o.keys, o.dks), (c.keys, c.dks), "key tables from the first backup with them");
         std::fs::remove_dir_all(dir).ok();
     }
 

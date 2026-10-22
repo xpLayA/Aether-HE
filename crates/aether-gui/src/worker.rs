@@ -271,13 +271,9 @@ impl State {
                 let base = self.preview_base.take();
                 let r = self.stop_effect().and_then(|_| {
                     let kb = self.kb()?;
-                    let mut backup = Backup::capture(kb.as_mut())?;
-                    // Mid-preview, the keyboard shows the preview: back up what was
-                    // there before it, so restoring this backup undoes the change.
-                    if let Some(b) = base {
-                        backup.lighting = b.into();
-                    }
-                    backup.save_in(&aether_device::backups_dir()?)?;
+                    // Mid-preview, the keyboard shows the preview: if this creates the
+                    // original backup, record what was there before it.
+                    Backup::ensure_original_in(&aether_device::backups_dir()?, kb.as_mut(), base)?;
                     if let Some(c) = leds {
                         kb.set_custom_leds(&c)?;
                     }
@@ -286,7 +282,7 @@ impl State {
                 if base.is_some() {
                     self.emit(Event::Previewing(false));
                 }
-                self.report(r, |_| Some("Lighting applied (backup saved)".into()));
+                self.report(r, |_| Some("Lighting applied".into()));
                 self.emit(Event::BackupsChanged);
                 self.read_lighting();
             }
@@ -356,7 +352,8 @@ impl State {
                 }
             }
             Cmd::Backup => {
-                let r = self.paused(Backup::snapshot);
+                // An explicit backup is always a new file, unlike the automatic original.
+                let r = self.paused(|kb| Backup::capture(kb)?.save_in(&aether_device::backups_dir()?));
                 self.report(r, |p| Some(format!("Saved {}", p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default())));
                 self.emit(Event::BackupsChanged);
             }

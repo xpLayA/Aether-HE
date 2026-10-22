@@ -38,7 +38,12 @@ enum Cmd {
         original: bool,
     },
     /// List saved backups, oldest first (unix time, board, file).
-    Backups,
+    Backups {
+        /// Keep only each board's original backup (missing sections merged in
+        /// from the oldest backup that has them) and delete the rest.
+        #[arg(long)]
+        prune: bool,
+    },
     /// Firmware lighting.
     #[command(subcommand)]
     Light(LightCmd),
@@ -265,7 +270,14 @@ fn run(cli: Cli) -> Result<()> {
             Backup::load(&path)?.restore(kb.as_mut())?;
             println!("restored {} (actuation verified)", path.display());
         }
-        Cmd::Backups => {
+        Cmd::Backups { prune: true } => {
+            for board in Registry::load()?.boards {
+                if let Some((keep, n)) = Backup::prune(&board.slug)? {
+                    println!("{}: kept {}, deleted {n}", board.slug, keep.display());
+                }
+            }
+        }
+        Cmd::Backups { prune: false } => {
             for (t, p) in Backup::list()? {
                 let board = p.file_stem().and_then(|s| s.to_str()).and_then(|s| s.rsplit_once('-')).map_or("?", |(b, _)| b);
                 println!("{t}\t{board}\t{}", p.display());

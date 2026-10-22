@@ -77,8 +77,10 @@ backups, profiles, reset-to-default ✔. Not implemented / unverified: plain rem
 calibration, live depth, 2.4 GHz dongle. DKS "hold" bits are source-only (never captured).
 
 ## Data on disk
-Backups `~/.local/share/aether-he/backups/<board>-<unix>.json` (taken before every change; the oldest
-is the pre-Aether state, used by "Restore original"). Custom profiles `~/.config/aether-he/profiles/*.json`
+Backups `~/.local/share/aether-he/backups/<board>-<unix>.json`: only the original (pre-Aether) state is
+kept automatically. `Backup::snapshot` creates it before the first change and fills in sections it lacks,
+but never overwrites it. Manual backups (`aether backup`, GUI "Backup now") add extra files.
+`aether backups --prune` merges everything into the original and deletes the rest. Custom profiles `~/.config/aether-he/profiles/*.json`
 (format 2: optional lighting + actuation table + optional effect); built-ins (Firmware default, Competitive,
 Gaming, Balanced, Typing) are generated from `PRESETS`, set actuation only and are never saved. The GUI
 always has an active profile: every edit is auto-saved into the active custom profile, and editing while a
