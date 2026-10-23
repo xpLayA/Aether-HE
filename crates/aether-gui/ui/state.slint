@@ -61,9 +61,18 @@ export struct FKey {
     with-fn: string,
 }
 
+export struct NavEntry {
+    label: string,
+    icon: string,
+    // Index into the page list (stays fixed when entries are hidden).
+    page: int,
+}
+
 export global UiState {
-    // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 keys, 5 live, 6 backups, 7 device
+    // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 keys, 5 live, 6 backups, 7 device, 8 shortcuts
     in-out property <int> page;
+    // Sidebar entries: only the pages the connected board supports.
+    in property <[NavEntry]> nav;
     // Initial scroll offset (AETHER_SCROLL, for screenshots).
     in property <length> start-scroll;
     // 0 connecting, 1 connected, 2 no keyboard, 3 Bluetooth only (typing, no settings)

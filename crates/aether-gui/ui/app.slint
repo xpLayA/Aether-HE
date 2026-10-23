@@ -142,21 +142,11 @@ export component AppWindow inherits Window {
                         Text { text: "Keyboard control"; font-size: 11.5px; color: Theme.muted; }
                     }
                 }
-                for item[i] in [
-                    { label: "Profiles", icon: "profiles" },
-                    { label: "Lighting", icon: "lighting" },
-                    { label: "Effects", icon: "effects" },
-                    { label: "Actuation", icon: "actuation" },
-                    { label: "Advanced keys", icon: "keys" },
-                    { label: "Live depth", icon: "live" },
-                    { label: "Backups", icon: "backups" },
-                    { label: "Device", icon: "device" },
-                    { label: "Fn shortcuts", icon: "shortcuts" },
-                ]: NavItem {
+                for item in UiState.nav: NavItem {
                     label: item.label;
                     icon: item.icon;
-                    active: UiState.page == i;
-                    clicked => { Actions.nav(i); }
+                    active: UiState.page == item.page;
+                    clicked => { Actions.nav(item.page); }
                 }
                 Rectangle { vertical-stretch: 1; }
                 Rectangle {

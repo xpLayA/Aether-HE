@@ -19,13 +19,25 @@ use aether_device::{
 use aether_effects::Kind;
 use aether_proto::{ActTable, Actuation, DeviceInfo, DksSlot, KeyAction, LIGHT_MODE_CUSTOM, Lighting, SocdMode, raw_to_mm};
 use serde::{Deserialize, Serialize};
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use firmware_sim::Sim;
 use worker::{Cmd, Event, Worker};
 
 slint::include_modules!();
 
 const PAGES: [&str; 9] = ["profiles", "lighting", "effects", "actuation", "keys", "live", "backups", "device", "shortcuts"];
+/// Sidebar label and icon of each page in `PAGES`.
+const NAV: [(&str, &str); 9] = [
+    ("Profiles", "profiles"),
+    ("Lighting", "lighting"),
+    ("Effects", "effects"),
+    ("Actuation", "actuation"),
+    ("Advanced keys", "keys"),
+    ("Live depth", "live"),
+    ("Backups", "backups"),
+    ("Device", "device"),
+    ("Fn shortcuts", "shortcuts"),
+];
 const P_LIGHTING: i32 = 1;
 const P_EFFECTS: i32 = 2;
 /// Minimum gap between lighting previews sent while you drag a slider.
@@ -682,7 +694,42 @@ impl State {
         ));
     }
 
+    /// Show only the pages the connected board supports, so a board added with
+    /// a few capabilities gets the same UI without dead pages. Everything shows
+    /// while no board is connected.
+    fn push_nav(&self, ui: &AppWindow) {
+        let g = ui.global::<UiState>();
+        let caps = match &self.conn {
+            Conn::Up { board, .. } => Some((&board.capabilities, board.wireless)),
+            _ => None,
+        };
+        let shown = |page: usize| match (page, caps) {
+            (8, _) => self.shortcuts.is_some(),
+            (_, None) => true,
+            (1, Some((c, _))) => c.lighting,
+            // Over the receiver the page stays, to say effects need the cable.
+            (2, Some((c, wireless))) => c.host_effects || wireless,
+            (3, Some((c, _))) => c.actuation,
+            (4, Some((c, _))) => c.advanced_keys,
+            _ => true,
+        };
+        let nav: Vec<NavEntry> = NAV
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| shown(*i))
+            .map(|(i, (label, icon))| NavEntry { label: (*label).into(), icon: (*icon).into(), page: i as i32 })
+            .collect();
+        if !nav.iter().any(|n| n.page == g.get_page()) {
+            g.set_page(0);
+        }
+        // Rebuilding the model recreates the items (hover, animations): only on change.
+        if !g.get_nav().iter().map(|n| n.page).eq(nav.iter().map(|n| n.page)) {
+            g.set_nav(model(nav));
+        }
+    }
+
     fn push_header(&self, ui: &AppWindow) {
+        self.push_nav(ui);
         let g = ui.global::<UiState>();
         match &self.conn {
             Conn::Connecting => g.set_connection(0),
