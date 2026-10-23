@@ -364,7 +364,7 @@ running.
 
 ## Not supported yet
 
-- Plain key remapping, macros, dead zones.
+- Plain key remapping, macros, dead zones, sleep timers, the music-rhythm mode.
 - Calibration (deliberately never sent).
 - Live key-depth display (the keyboard only exposes it through calibration mode).
 - Host effects over 2.4 GHz: a limit of the receiver, not something Aether can fix.
