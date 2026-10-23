@@ -1,87 +1,129 @@
+<div align="center">
+
+<img src="packaging/aether-he.png" alt="Aether HE" width="120">
+
 # Aether HE
 
-**An unofficial, community-made Linux app for configuring the AULA F75 HE Hall-effect keyboard,
-written in Rust.**
+**Native Linux control for the AULA F75 HE Hall-effect keyboard: lighting, effects, actuation,
+rapid trigger and advanced keys, over USB-C or the 2.4 GHz receiver.**
 
-> **Not an official AULA product.** Aether HE is an independent hobby project. It is not affiliated with,
-> endorsed by, or supported by AULA, or by the makers of the keyboard's controller and official driver.
-> Product names are used only to say which hardware it works with, and remain the property of their
-> owners. It was built by studying the protocol and testing on one keyboard. It doesn't claim to be
-> better than, or a replacement for, the official software. **Use it at your own risk.** See
-> [Disclaimer](#disclaimer).
+![Rust](https://img.shields.io/badge/Rust-2024-b7410e?logo=rust&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-Wayland%20%7C%20X11-1f6feb?logo=linux&logoColor=white)
+![UI](https://img.shields.io/badge/UI-Slint-2379f4)
+![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3da639)
+![Tested](https://img.shields.io/badge/tested%20on-AULA%20F75%20HE%20fw%20V1.55-8957e5)
 
-Profiles, firmware lighting with live preview, animated per-key effects, actuation and rapid trigger,
-and the original settings saved automatically, over USB-C or the 2.4 GHz receiver.
+[Features](#features) · [Install](#install) · [Using it](#using-it) · [Command line](#command-line) ·
+[Troubleshooting](#troubleshooting) · [Development](#development)
 
-`Rust` · `Linux (Wayland / X11)` · `GPL-3.0-or-later` · `tested on one AULA F75 HE (firmware V1.55)`
+</div>
 
-![Profiles](docs/media/gui-profiles.png)
+> [!WARNING]
+> **Unofficial.** Aether HE is an independent hobby project, not affiliated with, endorsed by, or
+> supported by AULA or the makers of the keyboard's controller and official driver. It was built by
+> studying the protocol and testing on one keyboard, and it doesn't claim to replace the official
+> software. **Use it at your own risk**: see the [Disclaimer](#disclaimer).
 
-| Lighting: live preview + colour picker | Actuation: presets, rapid trigger |
-|---|---|
-| ![Lighting](docs/media/gui-lighting.png) | ![Actuation](docs/media/gui-actuation.png) |
+---
+
+## At a glance
+
+What works over each connection, all tested on a real F75 HE:
+
+| | USB-C cable | 2.4 GHz receiver | Bluetooth |
+|---|:---:|:---:|:---:|
+| Firmware lighting (19 effects) with live preview | ✅ | ✅ | — |
+| Per-key colours stored on the keyboard | ✅ | ✅ | — |
+| Animated host effects (9) and reactive effects (7) | ✅ | ✗ ¹ | — |
+| Actuation 0.10–3.40 mm and rapid trigger, per key | ✅ | ✅ | — |
+| Advanced keys: DKS, mod-tap, toggle, SOCD, rapid snap | ✅ | ✅ | — |
+| Profiles, automatic original backup, verified writes | ✅ | ✅ | — |
+| Battery level | n/a | ✅ | ✅ ² |
+| Typing | ✅ | ✅ | ✅ |
+
+¹ The receiver acknowledges the live colour stream but never shows it on the keys (tested 2026-10-23).
+Plug in the cable for effects; everything stored on the keyboard works wirelessly.
+² The keyboard offers no settings over Bluetooth. Aether recognises it, shows the battery, and takes
+over as soon as you plug in the cable or switch to 2.4 GHz.
+
+## Highlights
+
+- **A full Rust rewrite.** The original Python app was rewritten as a Rust workspace (protocol, device,
+  effects, CLI, GUI). Its protocol code is golden-tested frame by frame against the original Python
+  implementation.
+- **Tested on real hardware.** Every command Aether sends was tested on an F75 HE: written, read back
+  and compared, then restored byte-exact. That covers the USB cable and the 2.4 GHz receiver.
+- **Safety by design.** Aether's protocol code can't express the vendor protocol's flash, factory-reset
+  and calibration commands, and the USB layer refuses them a second time.
+- **Your original settings, kept.** Before Aether first changes anything, it saves the keyboard's
+  settings once and never overwrites that file. *Restore original* takes the keyboard back to that state.
+- **A desktop app that stays out of the way.** One instance per session, background effects, start at
+  login, automatic reconnect after unplug or suspend, and a native Slint UI (Fluent dark).
 
 ---
 
 ## Features
 
-- **Profiles:** built-in Firmware default, Competitive, Gaming, Balanced and Typing set every key's
-  actuation; custom profiles hold your whole setup (lighting, every key's actuation, the effect), and
-  every change you make is saved into the active one automatically.
-- **Firmware lighting:** all 19 built-in effects, with brightness, speed and an HSV colour picker.
-  - **Live preview:** every change shows on the keyboard immediately, and nothing is saved until you
-    press *Apply*.
-  - **On-screen simulation:** the virtual keyboard animates a look-alike of the selected effect.
-  - **Per-key paint:** choose *Custom (per-key)*, select keys, pick a colour and paint. *Apply* stores
-    the colours on the keyboard, so they stay without the app.
-- **Host effects:** wave, breathe, aurora, comet, tide, twinkle, rain, striation and static, with your
-  own palette, streamed to every key at ~28 fps while Aether runs.
-  - **Background:** closing the window while an effect runs keeps it going (open Aether again to get the
-    window back, **Quit** in the sidebar to stop). *Device → Start at login* runs it hidden from login
-    (Hyprland: add `exec-once = aether-gui --background`). It reconnects by itself after unplug or suspend.
-  - **Reactive:** ripple (a ring spreading from the key you press), splash, cross, sparks, afterglow,
-    heatmap and lightning. They read key presses from the keyboard itself (read-only, never stored);
-    clicking keys on screen triggers them too.
-- **Advanced keys** (stored on the keyboard, work without the app): DKS (up to four keys at four
-  points of one press), mod-tap (tap / hold), toggle, rapid snap (RS: the deeper of two keys wins) and
-  SOCD (last input / key 1 / key 2 / neutral). Removing one puts the key back exactly as it was.
-- **Actuation and rapid trigger:**
-  - Per key, from 0.10 to 3.40 mm.
-  - One-click presets: Competitive, Gaming, Balanced, Typing, Default.
-  - *All keys* or a selection, chosen by clicking, Shift+click, a drag box, or shortcuts like WASD.
-  - Reset to the factory default.
-- **Wireless (2.4 GHz receiver):** lighting, per-key colours, actuation / rapid trigger and advanced
-  keys all work through the dongle, and the header shows the battery level (⚡ while charging). Host
-  effects need the cable: the receiver doesn't pass the live colour stream.
-- **Safeguards** (they reduce risk; they don't remove it):
-  - The keyboard's original settings are saved automatically before Aether first changes anything (one
-    file, never overwritten).
-  - Every write is verified by reading the keyboard back.
-  - *Restore original* returns the keyboard to how it was before Aether touched it.
-- **CLI:** everything scriptable with the `aether` command.
+### Profiles
+- **Built-in:** Firmware default, Competitive, Gaming, Balanced and Typing. They set every key's
+  actuation and leave your lighting alone.
+- **Custom profiles** hold your whole setup: lighting, per-key colours, every key's actuation and an
+  optional effect.
+- **Always saved:** there is always an active profile, and every change is saved into it. Editing while
+  a built-in is active creates a custom copy, e.g. *Gaming (custom)*.
 
-## Supported keyboard
+### Firmware lighting
+- All 19 built-in effects, with brightness, speed and an HSV colour picker.
+- **Live preview:** each change shows on the keyboard immediately. Nothing is saved until you press
+  *Apply*.
+- **On-screen simulation:** the virtual keyboard animates a look-alike of the selected effect.
+- **Per-key paint:** select keys and paint them. The colours are stored on the keyboard, so they stay
+  without the app.
 
-| Keyboard | USB ID | Status |
-|---|---|---|
-| AULA F75 HE (wired, USB-C) | `38A6:2729` | Tested: lighting · host effects · actuation · rapid trigger · advanced keys |
-| AULA F75 HE (2.4 GHz receiver) | `0C45:FEFE` | Tested: lighting · actuation · rapid trigger · advanced keys · battery (no host effects) |
-| AULA F75 HE (Bluetooth) | `0C45:FEFE` (BLE) | Recognised, battery shown; typing only: the keyboard exposes no settings channel over Bluetooth |
+### Host effects
+- **Animated:** wave, breathe, aurora, comet, tide, twinkle, rain, striation and static. Use your own
+  palette, background, speed, brightness and direction. Streamed to every key at ~28 fps.
+- **Reactive:** ripple, splash, cross, sparks, afterglow, heatmap and lightning. They respond to the keys
+  you press (read-only; nothing is stored). Clicking keys on screen triggers them too.
+- **Background:** effects keep running when you close the window; *Quit* stops them. *Start at login*
+  runs Aether hidden with your profile's effect.
+- **When Aether quits:** choose which firmware lighting the keyboard keeps once Aether exits.
 
-**Not supported (yet):**
-- plain key remapping, macros, dead zones,
-- calibration,
-- host effects over 2.4 GHz,
-- any settings over Bluetooth (the firmware doesn't offer them there; use USB-C or 2.4 GHz). Your
-  desktop's Bluetooth or power panel still shows the battery,
-- live key-depth display (the keyboard doesn't expose it safely).
+### Actuation and rapid trigger
+- Per key, 0.10–3.40 mm, with rapid trigger press and release sensitivity.
+- One-click presets: Competitive, Gaming, Balanced, Typing, Default.
+- **Selecting keys:** click, Shift+click, drag a box, or use quick sets (All, WASD, Letters…).
+- Reset a selection or the whole board to the firmware default.
+
+### Advanced keys
+Stored on the keyboard, so they work without the app:
+- **DKS:** up to four actions at four points of one keypress.
+- **Mod-tap:** one action on tap, another on hold.
+- **Toggle**.
+- **Rapid snap:** the deeper of two keys wins.
+- **SOCD:** last input, key 1, key 2 or neutral.
+
+Removing an advanced key puts it back exactly as it was before.
+
+### Wireless and Bluetooth
+- **2.4 GHz receiver:** found like the cable. The header shows the battery level (⚡ while charging).
+  When both are connected, the cable is used.
+- **Bluetooth:** recognised, with the battery level shown. Typing only, because the firmware exposes
+  no settings there.
+
+### Fn shortcuts
+The keyboard's built-in Fn combinations, from AULA's paper manual: connection modes and pairing,
+system modes, lighting and media keys. Includes the F-row for each system mode.
+
+### Command line
+Everything is scriptable with the `aether` command. See [Command line](#command-line).
 
 ---
 
 ## Install
 
 ### 1. Requirements
-Linux with a graphical session. Tested on CachyOS / Arch with Wayland (Hyprland). On Arch-based
+Linux with a graphical session (Wayland or X11). Tested on CachyOS / Arch with Hyprland. On Arch-based
 systems:
 
 ```bash
@@ -106,7 +148,7 @@ cd aether-he
    rule lets your user talk to the keyboard without `sudo`.
 5. Records everything it installed, so it can be removed cleanly later.
 
-**After installing, unplug and replug the keyboard once.**
+**After installing, unplug and replug the keyboard (or the receiver) once.**
 
 | Option | Effect |
 |---|---|
@@ -115,61 +157,88 @@ cd aether-he
 | `--no-build` | install the existing build as-is |
 
 ### 3. Run it
-Open **Aether HE** from your app menu, or run:
+Open **Aether HE** from your app menu, or run `aether-gui`.
 
-```bash
-aether-gui
-```
-
-> Close the official Aula web driver (browser tab) first. While it's open it holds the keyboard.
+> [!NOTE]
+> Close the official Aula web driver (browser tab) first. While it's open, it holds the keyboard.
 
 ---
 
 ## Using it
 
-**Profiles**
-- *Profiles* → **Apply** on a tile, or use the **Profile** switcher at the top right on any page.
-- Built-ins only set actuation and keep your lighting. Change anything (lighting, effect, actuation)
-  while a built-in is active and a custom copy, e.g. *Gaming (custom)*, is created and becomes active.
-- While a custom profile is active, every change is saved into it; the chip under each page title says
-  where changes go.
-- To save the current setup under a new name: type it under *New custom profile* and press **Save
-  current setup** (a running effect is included).
-- **More** on a tile: update it from the keyboard, attach or remove an effect, rename, duplicate,
-  delete. On a built-in: make a custom copy.
+<details open>
+<summary><b>Profiles</b></summary>
 
-**Actuation**
-- Select keys on the keyboard: click, Shift+click, drag a box, or use *All / WASD / Letters / …*.
-- Click a **preset**, or set *Actuation* (and *Rapid trigger* press/release) and **Apply**.
-- Switch *Selected keys* to **All keys** to change the whole board at once.
-- **Reset selected / Reset all** go back to the firmware default. Keys show their value in mm; blank
-  means default.
+- On the *Profiles* page, press **Apply** on a tile, or use the **Profile** switcher at the top right
+  of any page.
+- Built-ins only set actuation and keep your lighting. If you change anything while a built-in is
+  active, a custom copy is created and becomes active.
+- While a custom profile is active, every change is saved into it. The chip under each page title
+  shows where changes go.
+- **Save current setup** under *New custom profile* stores everything, including a running effect,
+  under a new name.
+- **More** on a tile: update it from the keyboard, attach or remove an effect, rename, duplicate or
+  delete it.
+</details>
 
-**Lighting**
-- Pick an effect, colour, brightness and speed. With **On keyboard** enabled, the keyboard shows it live.
+<details>
+<summary><b>Lighting</b></summary>
+
+- Pick an effect, colour, brightness and speed. With **On keyboard** on, the keyboard shows the change
+  live.
 - **Apply** keeps it. **Cancel preview**, switching page or closing the app puts the old lighting back.
 - **On screen** toggles the animated simulation on the virtual keyboard.
+- **Per-key paint:** choose *Custom (per-key)*, select keys, pick a colour, then press **Paint
+  selected** or **Fill all**.
+</details>
 
-**Effects**
-- Choose an effect and colours, then **Start effect**.
-- Effects run while the app is open, and **Stop** restores your firmware lighting.
+<details>
+<summary><b>Effects</b></summary>
 
-**Backups**
+- Choose an effect and colours, then press **Start effect**. **Stop effect** restores your firmware
+  lighting.
+- Effects need the USB cable. Over 2.4 GHz the page says so, and your stored lighting and per-key
+  colours stay as they are.
+</details>
+
+<details>
+<summary><b>Actuation</b></summary>
+
+- Select keys on the keyboard: click, Shift+click, drag a box, or use *All / WASD / Letters / …*.
+- Click a **preset**, or set *Actuation* (and *Rapid trigger* press/release) and press **Apply**.
+- Switch *Selected keys* to **All keys** to change the whole board at once.
+- **Reset selected / Reset all** go back to the firmware default. Each key shows its value in mm;
+  blank means the default.
+</details>
+
+<details>
+<summary><b>Advanced keys</b></summary>
+
+- Pick a key, choose DKS, mod-tap, toggle, rapid snap or SOCD, and save it to the keyboard. Rapid
+  snap and SOCD take a pair of keys.
+- **Off** or **Remove** makes it an ordinary key again, exactly as it was before Aether. **Remove all** clears every advanced key.
+</details>
+
+<details>
+<summary><b>Backups</b></summary>
+
 - The keyboard's original settings are saved automatically before Aether first changes anything. Only
-  that one file is kept; it is never overwritten.
-- **Backup now** saves an extra copy of the current settings whenever you want one.
-- **Restore** any of them, or **Restore original** for the pre-Aether state.
-- Restoring is verified by reading the keyboard back.
+  that one file is kept automatically, and it is never overwritten.
+- **Backup now** saves an extra copy whenever you want one.
+- **Restore** any of them, or **Restore original** for the pre-Aether state. Each restore is verified
+  by reading the keyboard back.
+</details>
 
-**Wireless**
-- Plug in the 2.4 GHz receiver and switch the keyboard to 2.4 GHz mode; Aether finds it like the cable.
-  With both connected, the cable is used.
-- The keyboard sleeps when idle, and only a keypress wakes it. If a change says the keyboard is asleep,
-  press a key and try again.
+<details>
+<summary><b>Wireless</b></summary>
+
+- Plug in the 2.4 GHz receiver and switch the keyboard to 2.4 GHz: Aether finds it like the cable.
+- The keyboard sleeps when idle, and only a keypress wakes it. If a change says the keyboard is
+  asleep, press a key and try again.
 - The battery level in the header updates every minute.
-- Over **Bluetooth**, Aether recognises the keyboard and shows its battery, but it can't change settings
-  there (the keyboard doesn't offer them). Plug in the cable or switch to 2.4 GHz, and Aether takes
-  over within a few seconds. Settings stay on the keyboard when you go back to Bluetooth.
+- Over Bluetooth, plug in the cable or switch to 2.4 GHz to change settings. Your settings stay on the
+  keyboard when you go back to Bluetooth.
+</details>
 
 ## Command line
 
@@ -185,7 +254,7 @@ aether profile list | save NAME | update NAME | apply NAME | duplicate NAME NEW 
 aether keys list | off KEY | tgl KEY | mt KEY --tap Esc --hold L-Ctrl --ms 200
 aether keys rs A D | socd A D --mode last|key1|key2|neutral
 aether keys dks F --press 1.0 --bottom 3.0 --act F:t--- --act G:-t--   # t tap, h hold, per point
-aether effect rain --colors 00ff80,0080ff --seconds 30   # Ctrl+C stops, lighting restored
+aether effect rain --colors 00ff80,0080ff --seconds 30   # cable only; Ctrl+C stops, lighting restored
 aether backup [--out FILE]
 aether backups                                # oldest first
 aether backups --prune                        # keep only the original, merge and delete the rest
@@ -204,7 +273,7 @@ git pull
 ./scripts/install.sh
 ```
 
-Re-running `install.sh` also refreshes the udev rule (it asks for your password only if the rule changed).
+Re-running `install.sh` also refreshes the udev rule. It asks for your password only if the rule changed.
 
 ## Uninstall
 
@@ -212,7 +281,7 @@ Re-running `install.sh` also refreshes the udev rule (it asks for your password 
 ./scripts/uninstall.sh
 ```
 
-It lists exactly what will be removed and asks before doing anything. It also asks what to do with the
+It lists exactly what will be removed and asks before doing anything, including what to do with the
 keyboard:
 
 ```
@@ -221,18 +290,19 @@ Keyboard settings:
   [r] restore the original settings, from before Aether first changed them
 ```
 
+<details>
+<summary>Options</summary>
+
 | Option | Effect |
 |---|---|
 | `--keep-settings` / `--restore-original` | answer the keyboard question in advance |
 | `--purge` | also delete your backups and GUI settings (asks again) |
 | `--yes` | don't ask (keeps the keyboard settings) |
 | `--prefix DIR` | the prefix used at install time |
+</details>
 
-- Your **backups are kept** unless you pass `--purge`.
-- The keyboard stores its own settings, so uninstalling the app doesn't change the keyboard unless you
-  choose *restore original*.
-
----
+Your **backups are kept** unless you pass `--purge`. The keyboard stores its own settings, so
+uninstalling doesn't change the keyboard unless you choose *restore original*.
 
 ## Where your data lives
 
@@ -242,6 +312,7 @@ Keyboard settings:
 | Profiles | `~/.config/aether-he/profiles/` |
 | GUI settings | `~/.config/aether-he/gui.json` |
 | Installed app data | `~/.local/share/aether-he/data/` |
+| Autostart entry | `~/.config/autostart/aether-he.desktop` |
 
 ## Troubleshooting
 
@@ -252,18 +323,29 @@ Keyboard settings:
 - Make sure the udev rule is installed (`./scripts/install.sh`), then unplug and replug the keyboard.
 - Run `aether info` to see the exact error.
 
-**A setting didn't stick:** press **Read** on the Actuation page, or `aether actuation get`, to see what
-the keyboard really has. Then restore a backup if needed.
+**"Connected over Bluetooth" but nothing can be changed:** that's the keyboard. It has no settings
+channel over Bluetooth. Use the cable or the 2.4 GHz receiver.
+
+**"Effects need the USB cable":** the 2.4 GHz receiver doesn't pass live effects to the keys. Use the
+cable, or firmware lighting and per-key paint, which work wirelessly.
+
+**A setting didn't stick:** press **Read** on the Actuation page (or run `aether actuation get`) to see
+what the keyboard really has, then restore a backup if needed.
 
 **The window doesn't open:** run `aether-gui` from a terminal to see the error. It needs a working
-Wayland or X11 session with OpenGL.
+Wayland or X11 session with OpenGL. Opening it a second time just shows the window that's already
+running.
 
-## Safeguards
+**Hyprland and start at login:** Hyprland doesn't read autostart files, so add
+`exec-once = aether-gui --background` to `hyprland.conf` instead.
 
-Aether only sends commands that were tested on an F75 HE, and it checks each write by reading the
-keyboard back. The vendor protocol's flash, factory-reset and calibration commands can't be expressed
-in Aether's protocol code, and a second check refuses them at the USB layer. These measures lower the
-risk; they are not a guarantee. See the disclaimer below.
+## Not supported yet
+
+- Plain key remapping, macros, dead zones.
+- Calibration (deliberately never sent).
+- Live key-depth display (the keyboard only exposes it through calibration mode).
+- Host effects over 2.4 GHz: a limit of the receiver, not something Aether can fix.
+- Any settings over Bluetooth: the keyboard doesn't offer them.
 
 ---
 
@@ -275,19 +357,32 @@ cargo test --workspace        # protocol golden tests, driver tests (simulated k
 AETHER_PAGE=actuation ./target/release/aether-gui   # open on a page
 ```
 
+```
+ aether-gui (Slint)      aether (CLI)
+        └──────────┬──────────┘
+             aether-device ── aether-effects
+     transport · driver · layouts · backups · profiles
+                   │
+             aether-proto        frame builders/parsers, no I/O
+                   │
+   hidraw: USB-C (64-byte frames) · 2.4 GHz receiver (32-byte frames)
+```
+
 | Crate | What it is |
 |---|---|
-| `crates/aether-proto` | Wire protocol: frame builders and parsers, no I/O; golden-tested against the original Python implementation |
-| `crates/aether-device` | USB transport, keyboard driver, layouts, backups, profiles |
-| `crates/aether-effects` | Host-streamed per-key effects |
+| `crates/aether-proto` | Wire protocol: frame builders and parsers, no I/O. Golden-tested against the original Python implementation. |
+| `crates/aether-device` | USB transport, keyboard driver, layouts, backups, profiles, Bluetooth detection |
+| `crates/aether-effects` | Host-streamed per-key effects, animated and reactive |
 | `crates/aether-cli` | The `aether` command |
 | `crates/aether-gui` | The `aether-gui` desktop app (Slint): `ui/*.slint` for layout, `src/` for logic |
 
-**Other places in the repo:**
-- Engineering notes for contributors (and AI assistants): [`CLAUDE.md`](CLAUDE.md).
-- Security review of the original code: [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md).
-- Protocol research and the original Python app, kept as the reference implementation:
-  [`docs/context/`](docs/context/) and [`legacy/python/`](legacy/python/).
+**Elsewhere in the repo:**
+- [`CLAUDE.md`](CLAUDE.md): engineering notes and the protocol, for contributors (and AI assistants).
+- [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md): security review of the original code.
+- [`docs/context/`](docs/context/) and [`legacy/python/`](legacy/python/): protocol research and the
+  original Python app, kept as the reference implementation.
+
+---
 
 ## Disclaimer
 
