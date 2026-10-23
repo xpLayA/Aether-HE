@@ -170,7 +170,8 @@ if ((purge)); then
 fi
 
 # Remove directories that are now empty (never anything with files left in it).
-for d in "$share/data/layouts" "$share/data" "$share" "$user_dir" \
+[[ -d $share/data ]] && find "$share/data" -depth -type d -empty -delete
+for d in "$share" "$user_dir" \
          "$prefix/share/icons/hicolor/512x512/apps"; do
     [[ -d $d ]] && rmdir --ignore-fail-on-non-empty -- "$d"
 done

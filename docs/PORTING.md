@@ -1,14 +1,15 @@
 # Porting Aether to your keyboard
 
-Aether's UI, profiles, backups, effects and CLI don't know which keyboard they're talking to. Everything
-board-specific lives in three places:
+Aether's UI, profiles, backups, effects and CLI don't know which keyboard they're talking to. A board is
+**one folder**, so ports on different branches never touch the same file:
 
 | Where | What | You touch it when |
 |---|---|---|
-| `data/boards.json` | identity (VID/PID, usage page, links), protocol, **capabilities**, lighting modes, actuation range | always |
-| `data/layouts/<board>.json` | every key: firmware index, name, browser code, HID usage, position and size | always |
-| `data/shortcuts/<slug>.json` | the Fn combinations from the paper manual (optional, shown on the *Fn shortcuts* page) | if you have the manual |
-| `crates/aether-device/src/<protocol>.rs` | a driver implementing the `Keyboard` trait | only for a new protocol family |
+| `data/boards/<slug>/board.json` | identity (VID/PID, usage page, links), protocol, **capabilities**, lighting modes, actuation range | always |
+| `data/boards/<slug>/layout.json` | every key: firmware index, name, browser code, HID usage, position and size | always |
+| `data/boards/<slug>/shortcuts.json` | the Fn combinations from the paper manual, shown on the *Fn shortcuts* page | if you have the manual |
+| `docs/boards/<slug>.md` | what was verified, when, with which script; quirks | always |
+| `crates/aether-device/src/<protocol>.rs` + `docs/protocols/<protocol>.md` | a driver implementing the `Keyboard` trait | only for a new protocol family |
 
 The GUI shows only the pages your board's capabilities allow. Lighting, Effects, Actuation and
 Advanced keys appear once you set the matching capability to `true`, so a half-finished port still
@@ -53,8 +54,10 @@ decodes, SayoDevice captures for the WIN60 HE PRO, a multi-board taxonomy) are t
 
 ## 3. Add the data files
 
-**`data/boards.json`**: copy the F75 entry, then change the following and set **every capability to
-`false`**:
+Start from a copy of the F75's folder: `cp -r data/boards/aula-f75-he data/boards/<slug>`. The folder
+name must equal the `slug` inside.
+
+**`board.json`**: change the following and set **every capability to `false`**:
 - `slug`, `name`, `vid`, `pid`, `usage_page`, `protocol`, `layout`;
 - `lighting.modes` (byte values and names, from the vendor driver), `brightness_max`, `speed_max`;
 - `actuation.travel_mm` / `rt_mm`;
@@ -63,7 +66,7 @@ decodes, SayoDevice captures for the WIN60 HE PRO, a multi-board taxonomy) are t
 
 Numbers are decimal in JSON (`0x38A6` → `14502`).
 
-**`data/layouts/<board>.json`**: `{"keys": [...]}`, one entry per physical key:
+**`layout.json`**: `{"keys": [...]}`, one entry per physical key:
 
 ```json
 { "index": "34", "name": "W", "code": "KeyW", "hidCode": "1A", "x": "128", "y": "130", "width": "50", "height": "50" }
@@ -74,7 +77,22 @@ Numbers are decimal in JSON (`0x38A6` → `14502`).
 - `x`/`y`/`width`/`height` are on any pixel grid (the F75 uses 50 px keys); the UI scales it.
 - `code` is the browser `KeyboardEvent.code`, `hidCode` the USB HID usage in hex.
 
-**`data/shortcuts/<slug>.json`** (optional): copy `aula-f75-he.json` and transcribe your manual.
+**`shortcuts.json`** (optional; delete it if you have no manual): transcribe your manual's Fn page.
+Only `groups` is required:
+
+```json
+{ "note": "Run on the keyboard itself.",
+  "groups": [ { "title": "Lighting", "rows": [ { "keys": "Fn + ↑", "does": "Brighter" } ] } ],
+  "frow": [ { "system": "Windows", "switch": "Fn + W", "keys": ["F1", "F2"],
+              "press": ["Brightness down", "Brightness up"], "fn": ["F1", "F2"] } ] }
+```
+
+- `frow` is the table of what a row of keys does alone and with Fn, one entry per system mode.
+  Leave it out if your board has no such table.
+- Leave out `system`/`switch` if there's only one mode.
+- `keys` defaults to F1, F2, ….
+
+**`docs/boards/<slug>.md`**: copy `docs/boards/aula-f75-he.md` and keep it current as you verify things.
 
 Then run:
 
@@ -99,8 +117,8 @@ For each capability, in this order: `lighting` → `actuation` → `rapid_trigge
    3. Restore the saved block **in a `finally`** and compare it byte-exact.
    4. Watch the keyboard: an ack alone proves nothing (today's 2.4 GHz effects test was acked and
       showed nothing).
-3. Flip the capability to `true` in `boards.json`. In the `_comment`, record the date and the script
-   that proved it.
+3. Flip the capability to `true` in `board.json`. In the `_comment`, record the date and the script
+   that proved it, and add a row to `docs/boards/<slug>.md`.
 4. Try it in the GUI, then commit (`feat(<slug>): lighting verified`).
 
 Wireless links get their own pass. Set `wireless_capabilities` from a run over the receiver: some
@@ -117,7 +135,7 @@ commands are dropped there, like the F75's live effect stream.
    - `require(capability, …)` gates each method;
    - the fake board in its tests shows how to test without hardware.
 3. **Registry.** Register the protocol name in `open()` (`lib.rs`) and in the list in
-   `every_shipped_board_is_consistent` (`data.rs`).
+   `every_shipped_board_is_consistent` (`data.rs`). Document the protocol in `docs/protocols/<name>.md`.
 4. **Tests.** Add golden frame tests against captures (`crates/aether-proto/tests/`) and fake-board
    driver tests.
 
@@ -147,8 +165,8 @@ docs/PORTING.md first. Here is the output of scripts/identify-board.py <filter> 
 <paste>
 
 1. Tell me which protocol family it looks like and why.
-2. Draft the boards.json entry (all capabilities false) and the layout file from <vendor driver
-   files / photo of the board>.
+2. Draft data/boards/<slug>/ (board.json with all capabilities false, layout.json, shortcuts.json)
+   and docs/boards/<slug>.md from <vendor driver files / photo of the board / manual>.
 3. Write a READ-ONLY probe for the identity and lighting tables, in the style of
    docs/context/f75-bringup/f75_rf_probe.py, that can only send read commands.
 Don't write to the keyboard until I say so, and stop after each step.

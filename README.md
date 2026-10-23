@@ -374,9 +374,10 @@ running.
 
 ## Contributing
 
-**Have a different keyboard?** Aether is built so that porting it is mostly data. A board is an entry in
-`data/boards.json` plus a layout file. The UI only shows the pages a board has verified, so you get the
-same app with exactly what works. Many AULA Hall-effect boards share the F75's protocol family and
+**Have a different keyboard?** Aether is built so that porting it is mostly data. A board is one
+folder, `data/boards/<slug>/` (board info, key layout, Fn shortcuts), so ports on different branches
+never conflict. The UI only shows the pages a board has verified, so you get the same app with exactly
+what works. Many AULA Hall-effect boards share the F75's protocol family and
 need no new code at all.
 
 - [`docs/PORTING.md`](docs/PORTING.md): step by step, from `scripts/identify-board.py` to verified

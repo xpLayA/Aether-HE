@@ -1,0 +1,185 @@
+{
+  "_comment": "Only capabilities verified on hardware are true; anything else stays false until round-tripped on this board (docs/boards/aula-f75-he.md). Provenance: legacy/python/data/board_registry.json and fixtures/f75/.",
+  "slug": "aula-f75-he",
+  "name": "AULA F75 HE",
+  "vid": 14502,
+  "pid": 10025,
+  "usage_page": 65384,
+  "protocol": "hfd",
+  "capabilities": {
+    "lighting": true,
+    "host_effects": true,
+    "actuation": true,
+    "rapid_trigger": true,
+    "per_key_store": true,
+    "advanced_keys": true
+  },
+  "links": [
+    {
+      "_comment": "2.4 GHz receiver; PID FEFE is shared by several AULA boards, so the product string decides. Same HFD protocol, 32-byte reports.",
+      "vid": 3141,
+      "pid": 65278,
+      "usage_page": 65376,
+      "frame_len": 32,
+      "wireless": true,
+      "product": "AULA F75 HE Dongle"
+    }
+  ],
+  "bluetooth": {
+    "_comment": "BLE: typing only, no vendor collection in the report map (fixtures/f75/bt_report_descriptor.txt). Same VID/PID as the receiver; the name ends in the BT channel.",
+    "vid": 3141,
+    "pid": 65278,
+    "name_prefix": "AULA F75 HE-"
+  },
+  "wireless_capabilities": {
+    "_comment": "Round-tripped over the dongle 2026-10-22 (docs/context/f75-bringup/f75_rf_write_rt.py): 0x23, 0x27, 0x24, 0x28+0x22 acked and read back byte-exact. host_effects stays false: the F75 receiver acks every 0x32 chunk but the keys never change (2026-10-23, docs/context/f75-bringup/f75_rf_stream_probe.py).",
+    "lighting": true,
+    "actuation": true,
+    "rapid_trigger": true,
+    "per_key_store": true,
+    "advanced_keys": true
+  },
+  "lighting": {
+    "brightness_max": 5,
+    "speed_max": 5,
+    "host_fps": 28,
+    "modes": [
+      {
+        "byte": 0,
+        "name": "Off",
+        "color": false,
+        "speed": false
+      },
+      {
+        "byte": 1,
+        "name": "Static",
+        "color": true,
+        "speed": false
+      },
+      {
+        "byte": 2,
+        "name": "Reactive Single",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 3,
+        "name": "Extinguish Single",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 4,
+        "name": "Starry Sky",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 5,
+        "name": "Snowfall",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 6,
+        "name": "Blossoming",
+        "color": false,
+        "speed": true
+      },
+      {
+        "byte": 7,
+        "name": "Dynamic Breathing",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 8,
+        "name": "Spectrum Cycle",
+        "color": false,
+        "speed": true
+      },
+      {
+        "byte": 9,
+        "name": "Color Spring",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 10,
+        "name": "Colorful Cross",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 11,
+        "name": "Drifting",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 12,
+        "name": "Twisting Path",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 13,
+        "name": "Reactive",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 14,
+        "name": "Double Tap",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 15,
+        "name": "Ripple Spread",
+        "color": false,
+        "speed": true
+      },
+      {
+        "byte": 16,
+        "name": "Flowing",
+        "color": true,
+        "speed": true
+      },
+      {
+        "byte": 17,
+        "name": "Mountain Peaks",
+        "color": false,
+        "speed": true
+      },
+      {
+        "byte": 18,
+        "name": "Gentle Rain",
+        "color": false,
+        "speed": true
+      },
+      {
+        "byte": 19,
+        "name": "Shuttle",
+        "color": false,
+        "speed": true
+      },
+      {
+        "byte": 20,
+        "name": "Custom (per-key)",
+        "color": true,
+        "speed": false
+      }
+    ]
+  },
+  "actuation": {
+    "travel_mm": [
+      0.1,
+      3.4
+    ],
+    "rt_mm": [
+      0.01,
+      3.4
+    ]
+  }
+}

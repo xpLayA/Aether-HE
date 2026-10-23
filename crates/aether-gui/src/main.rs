@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use aether_device::{
-    Advanced, Backup, Board, Colors, EffectSpec, KeyTables, Layout, PRESETS, Profile, Shortcuts, backups_dir, data_dir, describe, profiles_dir, usage_for_code,
+    Advanced, Backup, Board, Colors, EffectSpec, KeyTables, Layout, PRESETS, Profile, Registry, Shortcuts, backups_dir, describe, profiles_dir, usage_for_code,
 };
 use aether_effects::Kind;
 use aether_proto::{ActTable, Actuation, DeviceInfo, DksSlot, KeyAction, LIGHT_MODE_CUSTOM, Lighting, SocdMode, raw_to_mm};
@@ -530,7 +530,7 @@ impl State {
                     self.key_names = std::iter::once(("—".to_string(), 0))
                         .chain(layout.keys.iter().filter_map(|k| usage_for_code(&k.code).map(|u| (k.name.clone(), u))))
                         .collect();
-                    self.load_shortcuts(&board.slug);
+                    self.load_shortcuts(&board);
                     self.conn = Conn::Up { board, layout, info };
                     self.reload_profiles();
                     self.resolve_active = true;
@@ -541,7 +541,9 @@ impl State {
                     }
                 }
                 Event::Bluetooth { slug, name, battery } => {
-                    self.load_shortcuts(&slug);
+                    if let Some(b) = Registry::load().ok().and_then(|r| r.find(&slug).cloned()) {
+                        self.load_shortcuts(&b);
+                    }
                     self.conn = Conn::Bluetooth { name, battery };
                     self.running = None;
                 }
@@ -655,11 +657,14 @@ impl State {
         self.push_toasts(ui);
     }
 
-    fn load_shortcuts(&mut self, slug: &str) {
-        match Shortcuts::load(slug) {
-            Ok(Some(s)) => self.shortcuts = Some(s),
-            Ok(None) => {}
-            Err(e) => log::warn!("shortcuts for {slug}: {e}"),
+    /// The connected board's own shortcuts, or none: never another board's.
+    fn load_shortcuts(&mut self, board: &Board) {
+        self.shortcuts = Shortcuts::load(board).unwrap_or_else(|e| {
+            log::warn!("shortcuts for {}: {e}", board.slug);
+            None
+        });
+        if self.shortcuts.as_ref().is_none_or(|s| self.shortcut_system >= s.frow.len()) {
+            self.shortcut_system = 0;
         }
     }
 
@@ -682,14 +687,23 @@ impl State {
         ));
         g.set_shortcut_systems(model(s.frow.iter().map(|f| SharedString::from(f.system.as_str())).collect()));
         g.set_shortcut_system(self.shortcut_system as i32);
-        let Some(f) = s.frow.get(self.shortcut_system) else { return };
-        g.set_shortcut_switch(format!("{} switches to {}", f.switch, f.system).into());
+        let Some(f) = s.frow.get(self.shortcut_system) else {
+            g.set_shortcut_frow(model(Vec::new()));
+            return;
+        };
+        g.set_shortcut_switch(
+            match (s.frow.len() > 1, f.switch.is_empty()) {
+                (false, _) => String::new(),
+                (true, true) => "They depend on the system mode.".into(),
+                (true, false) => format!("They depend on the system mode: {} switches to {}.", f.switch, f.system),
+            }
+            .into(),
+        );
         g.set_shortcut_frow(model(
-            f.press
-                .iter()
-                .zip(&f.with_fn)
-                .enumerate()
-                .map(|(i, (p, w))| FKey { key: format!("F{}", i + 1).into(), press: p.clone().into(), with_fn: w.clone().into() })
+            f.labels()
+                .into_iter()
+                .zip(f.press.iter().zip(&f.with_fn))
+                .map(|(k, (p, w))| FKey { key: k.into(), press: p.clone().into(), with_fn: w.clone().into() })
                 .collect(),
         ));
     }
@@ -1361,21 +1375,11 @@ impl State {
     }
 }
 
-/// Before any board is seen: the shortcuts file, if only one board has one.
+/// Before any board is seen: the shortcuts, if only one board has them.
 fn only_shortcuts() -> Option<Shortcuts> {
-    let dir = data_dir().ok()?.join("shortcuts");
-    let mut slugs = std::fs::read_dir(dir).ok()?.filter_map(|e| {
-        let p = e.ok()?.path();
-        if p.extension()? != "json" {
-            return None;
-        }
-        Some(p.file_stem()?.to_string_lossy().into_owned())
-    });
-    let slug = slugs.next()?;
-    if slugs.next().is_some() {
-        return None;
-    }
-    Shortcuts::load(&slug).ok().flatten()
+    let mut all = Registry::load().ok()?.boards.into_iter().filter_map(|b| Shortcuts::load(&b).ok().flatten());
+    let s = all.next()?;
+    all.next().is_none().then_some(s)
 }
 
 /// `~/.config/autostart/aether-he.desktop`: start hidden at login.

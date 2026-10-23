@@ -67,7 +67,8 @@ The body says *why*, and names the probe script and date for anything verified o
 | `crates/aether-effects` | host-streamed effects (`Engine`); new effects go here |
 | `crates/aether-cli` | the `aether` command |
 | `crates/aether-gui` | Slint app: `ui/*.slint` layout only (via the `UiState`/`Actions` globals), `src/main.rs` glue, `src/worker.rs` owns the device |
-| `data/` | boards, layouts, Fn shortcuts |
+| `data/boards/<slug>/` | one folder per board: `board.json`, `layout.json`, `shortcuts.json` |
+| `docs/boards/`, `docs/protocols/` | per-board notes (verified status, quirks) and protocol references |
 | `scripts/` | build, install, uninstall, `identify-board.py` |
 
 ## Ground rules

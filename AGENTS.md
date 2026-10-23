@@ -16,10 +16,11 @@ reads `CLAUDE.md` directly.
   `0x0F` and `0x64`/`0x65`. Don't add them to any `Cmd` enum or probe script.
 - **Ask the user before any write to a keyboard.** Probes are read-only until the user agrees. Every write
   is followed by a read-back compare and a restore in a `finally`.
-- A capability in `data/boards.json` becomes `true` only after a hardware round-trip, recorded in its
+- A capability in `data/boards/<slug>/board.json` becomes `true` only after a hardware round-trip, recorded in its
   `_comment` with the date and script.
 - An ack is not proof. Success is a visible effect or a byte-exact read-back.
-- Board-specific facts belong in `data/`. Protocol code goes in `crates/aether-proto` (no I/O) and
+- Board-specific facts belong in `data/boards/<slug>/` and `docs/boards/<slug>.md`; read the latter
+  before working on that board. Protocol code goes in `crates/aether-proto` (no I/O) and
   drivers go in `crates/aether-device`. Keep the UI board-agnostic: it reads capabilities.
 - Run `cargo test --workspace` before you say you're done.
 - Match the surrounding style. Comments explain *why*.
