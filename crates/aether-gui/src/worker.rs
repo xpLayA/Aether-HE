@@ -40,6 +40,9 @@ pub enum Cmd {
     /// profile is created or updated (auto-save after every edit).
     SaveProfile { name: String, dir: PathBuf, new: bool },
     ApplyProfile(Profile),
+    /// The lighting mode to leave on the keyboard when the worker ends
+    /// (`None`: the lighting from before the effect or preview).
+    QuitLighting(Option<u8>),
 }
 
 pub enum Event {
@@ -80,7 +83,7 @@ impl Worker {
         let (tx, rx) = channel();
         let (etx, events) = channel();
         let live = Arc::new(Mutex::new(None));
-        let state = State { kb: None, rx, tx: etx, effect: None, preview_base: None, live: live.clone(), battery_at: Instant::now() };
+        let state = State { kb: None, rx, tx: etx, effect: None, preview_base: None, live: live.clone(), battery_at: Instant::now(), quit_mode: None };
         let handle = std::thread::Builder::new().name("aether-device".into()).spawn(move || state.run()).ok();
         Worker { tx, events, live, handle }
     }
@@ -89,8 +92,10 @@ impl Worker {
         let _ = self.tx.send(cmd);
     }
 
-    /// Stop any effect (restoring the lighting) and end the thread.
-    pub fn shutdown(&mut self) {
+    /// Stop any effect (restoring the lighting), leave `quit_mode` on the
+    /// keyboard if set, and end the thread.
+    pub fn shutdown(&mut self, quit_mode: Option<u8>) {
+        self.send(Cmd::QuitLighting(quit_mode));
         let (tx, _) = channel();
         drop(std::mem::replace(&mut self.tx, tx));
         if let Some(h) = self.handle.take() {
@@ -132,6 +137,8 @@ struct State {
     live: Arc<Mutex<Option<Frame>>>,
     /// Next battery read over a wireless link.
     battery_at: Instant,
+    /// Lighting mode to leave on the keyboard at exit.
+    quit_mode: Option<u8>,
 }
 
 type R<T> = aether_device::Result<T>;
@@ -172,6 +179,23 @@ impl State {
         if let Err(e) = self.cancel_preview() {
             log::warn!("restoring the lighting after a preview on exit: {e}");
         }
+        if let Err(e) = self.leave_quit_lighting() {
+            log::warn!("setting the lighting for after Aether quits: {e}");
+        }
+    }
+
+    /// Switch the stored lighting to the chosen "after Aether quits" mode,
+    /// keeping its colour, brightness and speed. The board keeps it, so it is
+    /// also what shows when Aether doesn't start at login.
+    fn leave_quit_lighting(&mut self) -> R<()> {
+        let Some(mode) = self.quit_mode else { return Ok(()) };
+        let Some(kb) = self.kb.as_mut().filter(|kb| kb.board().capabilities.lighting) else { return Ok(()) };
+        let base = kb.lighting()?;
+        if base.mode == mode {
+            return Ok(());
+        }
+        Backup::ensure_original_in(&aether_device::backups_dir()?, kb.as_mut(), None)?;
+        kb.set_lighting(&Lighting { mode, ..base })
     }
 
     /// Re-read the battery once a minute over a wireless link, when idle. No
@@ -416,6 +440,7 @@ impl State {
                 }
                 self.emit(Event::ProfilesChanged);
             }
+            Cmd::QuitLighting(m) => self.quit_mode = m,
             Cmd::ApplyProfile(p) => {
                 // A profile without lighting (the built-ins) leaves the lighting
                 // and any running effect as they are.

@@ -159,7 +159,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut s = state.borrow_mut();
     s.sync_fx_from_ui(&ui);
     s.saved(&ui).store();
-    s.worker.shutdown();
+    let quit_mode = s.quit_mode;
+    s.worker.shutdown(quit_mode);
     Ok(())
 }
 
@@ -178,6 +179,10 @@ struct Saved {
     /// Keep a host effect running after the window is closed.
     #[serde(default = "yes")]
     background: bool,
+    /// Lighting mode left on the keyboard when Aether quits (`None`: the
+    /// Lighting page's lighting).
+    #[serde(default)]
+    quit_mode: Option<u8>,
 }
 
 fn yes() -> bool {
@@ -193,7 +198,7 @@ impl Saved {
         Saved::path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None, live_preview: true, simulate: true, background: true })
+            .unwrap_or(Saved { page: 0, fx: default_fx(), active_profile: None, live_preview: true, simulate: true, background: true, quit_mode: None })
     }
 
     fn store(&self) {
@@ -259,6 +264,8 @@ struct State {
     dks_cells: [u8; 16],
     pair_swap: bool,
     background: bool,
+    /// Lighting mode to leave on the keyboard when Aether quits.
+    quit_mode: Option<u8>,
     /// The "still running in the background" notification was shown.
     told_background: bool,
     was_visible: bool,
@@ -369,6 +376,7 @@ impl State {
             dks_cells: [0; 16],
             pair_swap: false,
             background: saved.background,
+            quit_mode: saved.quit_mode,
             told_background: false,
             was_visible: false,
             last_connect: Instant::now(),
@@ -391,6 +399,7 @@ impl State {
             live_preview: self.live_preview,
             simulate: self.simulate,
             background: self.background,
+            quit_mode: self.quit_mode,
         }
     }
 
@@ -439,6 +448,15 @@ impl State {
         match self.active_profile.as_deref().and_then(|a| self.profile(a)).filter(|p| !p.builtin || matches(p)).cloned() {
             Some(p) => {
                 self.active_profile = Some(p.name.clone());
+                // The quit lighting replaced the profile's on the keyboard: put
+                // the profile's back while Aether runs (it is already saved).
+                let back = p.lighting.map(Lighting::from).filter(|l| {
+                    self.quit_mode.is_some_and(|m| self.lighting.is_some_and(|b| b.mode == m && b != *l))
+                });
+                if let Some(l) = back {
+                    let leds = p.custom_led_colors().ok().flatten().map(Box::new);
+                    self.send(Cmd::SetLighting(l, leds));
+                }
                 if let Some(e) = p.effect.filter(|_| self.running.is_none()) {
                     self.fx = e.clone();
                     self.send(Cmd::StartEffect(e));
@@ -1040,6 +1058,17 @@ impl State {
         let g = ui.global::<UiState>();
         g.set_profiles_dir(profiles_dir().map(|d| d.display().to_string()).unwrap_or_default().into());
         g.set_keep_running(self.background);
+        if let Some((board, _)) = self.up() {
+            let modes = &board.lighting.modes;
+            g.set_quit_modes(model(
+                std::iter::once(SharedString::from("Lighting page setting"))
+                    .chain(modes.iter().map(|m| SharedString::from(m.name.as_str())))
+                    .collect(),
+            ));
+            let i = self.quit_mode.and_then(|q| modes.iter().position(|m| m.byte == q)).map_or(0, |i| i as i32 + 1);
+            g.set_quit_mode_index(i);
+            g.set_quit_ok(board.capabilities.lighting);
+        }
         g.set_autostart(autostart_path().is_some_and(|p| p.exists()));
         g.set_backups_dir(backups_dir().map(|d| d.display().to_string()).unwrap_or_default().into());
         let Conn::Up { board, layout, info } = &self.conn else { return };
@@ -1633,6 +1662,11 @@ fn wire(ui: &AppWindow, state: &Rc<RefCell<State>>) {
     });
     on!(on_keep_running_toggled, |s, ui, on: bool| {
         s.background = on;
+        s.saved(&ui).store();
+    });
+    on!(on_quit_mode_chosen, |s, ui, i: i32| {
+        let modes = s.up().map(|(b, _)| b.lighting.modes.clone()).unwrap_or_default();
+        s.quit_mode = usize::try_from(i - 1).ok().and_then(|i| modes.get(i)).map(|m| m.byte);
         s.saved(&ui).store();
     });
     on!(on_autostart_toggled, |s, ui, on: bool| {

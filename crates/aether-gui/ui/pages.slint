@@ -678,6 +678,20 @@ export component DevicePage inherits VerticalLayout {
             Toggle { y: (parent.height - self.height) / 2; checked <=> UiState.autostart; toggled(on) => { Actions.autostart-toggled(on); } }
             Text { text: "Start at login, hidden, with the active profile's effect"; color: Theme.text; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
         }
+        if UiState.connection == 1 && UiState.quit-ok: HorizontalLayout {
+            spacing: 12px;
+            Text { text: "When Aether quits, the keyboard shows"; color: Theme.text; vertical-alignment: center; }
+            ComboBox {
+                model: UiState.quit-modes;
+                current-index <=> UiState.quit-mode-index;
+                max-width: 240px;
+                selected => { Actions.quit-mode-chosen(self.current-index); }
+            }
+        }
+        if UiState.connection == 1 && UiState.quit-ok: Text {
+            text: "Effects need Aether running. This is also what the keyboard shows when Aether isn't running, e.g. with start at login off.";
+            color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap;
+        }
         Text {
             text: "Hyprland doesn't read autostart files: add  exec-once = aether-gui --background  to hyprland.conf instead.";
             color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap;

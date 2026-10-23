@@ -101,7 +101,8 @@ Gaming, Balanced, Typing) are generated from `PRESETS`, set actuation only and a
 always has an active profile: every edit is auto-saved into the active custom profile, and editing while a
 built-in is active forks "<name> (custom)". GUI state `~/.config/aether-he/gui.json`.
 Background: closing the window hides it while a host effect runs (`on_close_requested`), Quit/SIGTERM
-quit cleanly (lighting restored). One instance per session via `$XDG_RUNTIME_DIR/aether-he.sock`
+quit cleanly (lighting restored, then the Settings "When Aether quits" mode, `quit_mode` in gui.json, is
+written if set; on the next connect the active profile's lighting is put back). One instance per session via `$XDG_RUNTIME_DIR/aether-he.sock`
 (`instance.rs`; a second launch just shows the window). `--background` maps the window for 0.5 s then
 hides it: winit/Wayland can't later show a window that was never mapped. Autostart file
 `~/.config/autostart/aether-he.desktop`. Auto-reconnect every 5 s while disconnected.

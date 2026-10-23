@@ -160,6 +160,10 @@ export global UiState {
     in property <string> backups-dir;
     in-out property <bool> keep-running: true;
     in-out property <bool> autostart;
+    // "After Aether quits" lighting: [0] = the Lighting page's, then the board's modes.
+    in property <[string]> quit-modes;
+    in-out property <int> quit-mode-index;
+    in property <bool> quit-ok;
 
     // overlays
     in property <[ToastItem]> toasts;
@@ -233,6 +237,7 @@ export global Actions {
     callback quit();
     callback keep-running-toggled(bool);
     callback autostart-toggled(bool);
+    callback quit-mode-chosen(int);
 
     callback confirm-yes();
     callback confirm-no();
