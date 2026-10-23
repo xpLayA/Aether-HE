@@ -60,6 +60,29 @@ over as soon as you plug in the cable or switch to 2.4 GHz.
 - **A desktop app that stays out of the way.** One instance per session, background effects, start at
   login, automatic reconnect after unplug or suspend, and a native Slint UI (Fluent dark).
 
+## New in Aether (not in the official driver)
+
+These ideas are original to Aether HE. The official AULA web driver doesn't have them:
+
+| Feature | What it adds |
+|---|---|
+| **Animated host effects** | Wave, breathe, aurora, comet, tide, twinkle, rain, striation and static, drawn by Aether and streamed to every key at ~28 fps, using your own palette, speed, brightness and direction. |
+| **Reactive effects** | Ripple, splash, cross, sparks, afterglow, heatmap and lightning, lit from the keys you actually press. |
+| **Effects in the background** | Effects keep running with the window closed, can start hidden at login, and resume after unplug or suspend. |
+| **"When Aether quits" lighting** | Choose which firmware lighting the keyboard keeps once Aether exits. Your profile's lighting comes back on the next connect. |
+| **Live lighting preview** | Every change shows on the keyboard as you make it. *Cancel preview* puts the old lighting back. |
+| **On-screen effect simulation** | The virtual keyboard animates a look-alike of the selected firmware effect. |
+| **Tuned built-in profiles** | Competitive, Gaming, Balanced and Typing actuation, set with one click. |
+| **Auto-saving profiles** | A profile holds lighting, per-key colours, every key's actuation and an effect. Every edit is saved into it, and editing a built-in forks a custom copy. |
+| **Original backup and *Restore original*** | The pre-Aether state is saved once, before the first change, and never overwritten. One click (or the uninstaller) puts it back. |
+| **Verified writes** | Every change is read back from the keyboard and compared. Advanced keys turned off return to their exact previous record. |
+| **Bluetooth recognition** | Shows that the keyboard is on Bluetooth with its battery level, and switches over when the cable or receiver appears. |
+| **Fn shortcuts in the app** | The paper manual's Fn combinations, including the F-row for each system mode, on their own page. |
+| **Native Linux app and CLI** | No browser or WebHID needed. Every setting is also scriptable with `aether`. |
+
+The official driver still has things Aether doesn't (yet): macros, plain remapping, dead zones,
+calibration, sleep timers and the music-rhythm mode. See [Not supported yet](#not-supported-yet).
+
 ---
 
 ## Features
