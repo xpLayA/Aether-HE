@@ -463,7 +463,9 @@ impl State {
                     let leds = p.custom_led_colors().ok().flatten().map(Box::new);
                     self.send(Cmd::SetLighting(l, leds));
                 }
-                if let Some(e) = p.effect.filter(|_| self.running.is_none()) {
+                // Over the receiver the effect waits for the cable (it stays in the profile).
+                let fx_ok = matches!(&self.conn, Conn::Up { board, .. } if board.capabilities.host_effects);
+                if let Some(e) = p.effect.filter(|_| self.running.is_none() && fx_ok) {
                     self.fx = e.clone();
                     self.send(Cmd::StartEffect(e));
                 }
@@ -689,6 +691,7 @@ impl State {
                 g.set_board_name(board.name.clone().into());
                 g.set_firmware(format!("firmware V{:X}.{:02X}", info.firmware >> 8, info.firmware & 0xFF).into());
                 g.set_wireless(board.wireless);
+                g.set_effects_ok(board.capabilities.host_effects);
                 g.set_battery(info.battery.min(100) as i32);
                 g.set_charging(info.charging());
             }

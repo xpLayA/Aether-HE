@@ -35,7 +35,7 @@
         "name_prefix": "AULA F75 HE-"
       },
       "wireless_capabilities": {
-        "_comment": "Round-tripped over the dongle 2026-10-22 (docs/context/f75-bringup/f75_rf_write_rt.py): 0x23, 0x27, 0x24, 0x28+0x22 acked and read back byte-exact. host_effects stays false: 0x32 is dropped by the RF bridge (MINI 60 HE PRO, hardware-verified).",
+        "_comment": "Round-tripped over the dongle 2026-10-22 (docs/context/f75-bringup/f75_rf_write_rt.py): 0x23, 0x27, 0x24, 0x28+0x22 acked and read back byte-exact. host_effects stays false: the F75 receiver acks every 0x32 chunk but the keys never change (2026-10-23, docs/context/f75-bringup/f75_rf_stream_probe.py).",
         "lighting": true,
         "actuation": true,
         "rapid_trigger": true,

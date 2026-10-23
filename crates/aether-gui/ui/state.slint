@@ -72,6 +72,8 @@ export global UiState {
     in property <string> firmware;
     // Connected through the 2.4 GHz receiver: show the battery.
     in property <bool> wireless;
+    // The connection carries host effects (not over the 2.4 GHz receiver).
+    in property <bool> effects-ok: true;
     in property <int> battery;
     in property <bool> charging;
     in property <string> down-reason;

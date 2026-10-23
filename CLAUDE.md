@@ -75,7 +75,8 @@ Regenerate golden frames after changing the Python reference:
   charging). The board sleeps after a short idle time, and requests don't wake it (only a keypress does), so a
   timeout over RF means asleep. Verified 2026-10-22 (`f75_rf_probe.py`, `f75_rf_write_rt.py`): every
   table reads, and 0x23/0x27/0x24/0x28/0x22 write and restore byte-exact (`wireless_capabilities`). `0x32`
-  streaming is dropped over RF (MINI 60), so host effects are wired-only; `0x35` RGB565 stream untried.
+  is acked chunk by chunk over RF but never reaches the keys (F75, 2026-10-23, `f75_rf_stream_probe.py`;
+  MINI 60 drops it too), so host effects are wired-only and the GUI says so; `0x35` RGB565 stream untried.
 - **Bluetooth LE** (channel 1, "AULA F75 HE-1", HID `0005:0C45:FEFE`, the receiver's IDs): the report map
   has only keyboard/mouse/consumer/digitizer collections, no vendor collection and no feature reports
   (`fixtures/f75/bt_report_descriptor.txt`, 2026-10-22). No control channel over BT, so typing only.

@@ -490,6 +490,9 @@ impl State {
 
     fn start_effect(&mut self, spec: EffectSpec) -> R<()> {
         let kb = self.kb()?;
+        if !kb.board().capabilities.host_effects {
+            return Err(aether_device::Error::Unsupported("effects need the USB cable: the 2.4 GHz receiver doesn't pass them on".into()));
+        }
         let fps = kb.board().lighting.host_fps.max(1.0);
         let keys: Vec<KeyPos> =
             kb.layout().keys.iter().map(|k| KeyPos { index: k.index, x: k.x + k.width / 2.0, y: k.y + k.height / 2.0 }).collect();

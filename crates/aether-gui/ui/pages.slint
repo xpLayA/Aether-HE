@@ -272,6 +272,11 @@ export component EffectsPage inherits VerticalLayout {
     spacing: 16px;
     PageTitle { title: "Effects"; subtitle: "Animated by this app and streamed to every key at 28 fps. They stop when the app closes."; }
     EditingHint { }
+    if UiState.connection == 1 && !UiState.effects-ok: Card {
+        title: "Effects need the USB cable";
+        subtitle: "The 2.4 GHz receiver doesn't pass live effects on to the keys.";
+        Text { color: Theme.text; wrap: word-wrap; text: "Plug in the USB-C cable to run them. Over 2.4 GHz you can still use the built-in lighting modes and your own per-key colours on the Lighting page, which are saved on the keyboard."; }
+    }
     KeyboardCard { }
     Card {
         title: "Host effect";
@@ -350,7 +355,7 @@ export component EffectsPage inherits VerticalLayout {
             alignment: start;
             if UiState.effect-running == "": Btn {
                 text: "Start effect"; kind: "primary";
-                enabled: UiState.connection == 1 && !UiState.busy;
+                enabled: UiState.connection == 1 && UiState.effects-ok && !UiState.busy;
                 clicked => { Actions.fx-start(); }
             }
             if UiState.effect-running != "": Btn { text: "Stop effect"; kind: "danger"; clicked => { Actions.fx-stop(); } }
