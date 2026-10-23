@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+repository = "https://github.com/xpLayA/aether-he"
+
+[workspace.dependencies]
+aether-proto = { path = "crates/aether-proto" }
+aether-device = { path = "crates/aether-device" }
+aether-effects = { path = "crates/aether-effects" }
+
+[profile.release]
+lto = "thin"
+strip = true

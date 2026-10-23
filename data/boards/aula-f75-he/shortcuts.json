@@ -1,0 +1,73 @@
+{
+  "_comment": "Transcribed from the AULA F75 HE paper manual (Standard Version Shortcut Key Descriptions). These run in the keyboard's firmware: they work without Aether, over every connection.",
+  "note": "These run on the keyboard itself, so they work over the cable, 2.4 GHz and Bluetooth, with or without Aether.",
+  "groups": [
+    {
+      "title": "Connection",
+      "rows": [
+        { "keys": "Fn + `", "does": "2.4 GHz receiver" },
+        { "keys": "Fn + 1 / 2 / 3", "does": "Bluetooth 1 / 2 / 3" },
+        { "keys": "Long press Fn + ` / 1 / 2 / 3", "does": "Pair: switch to the mode first, then long-press the same keys" }
+      ]
+    },
+    {
+      "title": "System mode",
+      "subtitle": "The chosen key flashes red for 3 s. It sets what the F-row does (below).",
+      "rows": [
+        { "keys": "Fn + Q", "does": "Android" },
+        { "keys": "Fn + W", "does": "Windows" },
+        { "keys": "Fn + E", "does": "Mac" }
+      ]
+    },
+    {
+      "title": "Lighting",
+      "rows": [
+        { "keys": "Fn + \\", "does": "Light effect switching" },
+        { "keys": "Fn + knob press", "does": "Light effect switching" },
+        { "keys": "Fn + Tab", "does": "Colour switching" },
+        { "keys": "Fn + ↑ / ↓", "does": "Brightness + / −" },
+        { "keys": "Fn + ← / →", "does": "Speed − / +" },
+        { "keys": "Fn + Left Shift", "does": "Light effect of the indicator" },
+        { "keys": "Fn + \\ (second entry in the manual)", "does": "Light mode switching" }
+      ]
+    },
+    {
+      "title": "Keys",
+      "rows": [
+        { "keys": "Fn + Win", "does": "Lock the Win key" },
+        { "keys": "Fn + U", "does": "Print Screen" },
+        { "keys": "Fn + I", "does": "Scroll Lock" },
+        { "keys": "Fn + O", "does": "Pause" },
+        { "keys": "Fn + Del", "does": "Insert" },
+        { "keys": "Fn + End", "does": "Home" },
+        { "keys": "Fn + B", "does": "Check the battery level" }
+      ]
+    },
+    {
+      "title": "Reset",
+      "rows": [
+        { "keys": "Fn + Esc", "does": "Restore the factory defaults: lighting, actuation and keys. Aether's original backup (Backups page) can put your settings back." }
+      ]
+    }
+  ],
+  "frow": [
+    {
+      "system": "Windows",
+      "switch": "Fn + W",
+      "press": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"],
+      "fn": ["Home page", "Email", "Task view", "Open Explorer", "Backlight −", "Backlight +", "Previous track", "Play / Pause", "Next track", "Mute", "Volume −", "Volume +"]
+    },
+    {
+      "system": "Mac",
+      "switch": "Fn + E",
+      "press": ["Screen brightness −", "Screen brightness +", "Task view", "Show desktop", "Backlight −", "Backlight +", "Previous track", "Play / Pause", "Next track", "Mute", "Volume −", "Volume +"],
+      "fn": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"]
+    },
+    {
+      "system": "Android",
+      "switch": "Fn + Q",
+      "press": ["Screen brightness −", "Screen brightness +", "Task view", "Show desktop", "Backlight −", "Backlight +", "Previous track", "Play / Pause", "Next track", "Mute", "Volume −", "Volume +"],
+      "fn": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"]
+    }
+  ]
+}

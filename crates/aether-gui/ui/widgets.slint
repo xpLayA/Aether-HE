@@ -1,0 +1,467 @@
+// Small, consistent building blocks. Everything interactive animates its
+// background so hover/press feel smooth.
+
+import { Theme } from "theme.slint";
+import { LineEdit } from "std-widgets.slint";
+import { Actions, ToastItem } from "state.slint";
+
+// kind: "primary" | "secondary" | "ghost" | "danger"
+export component Btn inherits Rectangle {
+    in property <string> text;
+    in property <string> kind: "secondary";
+    in property <bool> enabled: true;
+    in property <bool> small;
+    in property <string> tip;
+    callback clicked;
+
+    min-width: label.preferred-width + (small ? 20px : 32px);
+    height: small ? 28px : 36px;
+    border-radius: Theme.radius;
+    background: !enabled ? (kind == "primary" ? #60cdff40 : Theme.surface-2)
+        : kind == "primary" ? (ta.pressed ? #4fb8e8 : ta.has-hover ? Theme.accent-hover : Theme.accent)
+        : kind == "danger" ? (ta.has-hover ? #f8717133 : Theme.danger-soft)
+        : kind == "ghost" ? (ta.has-hover ? Theme.surface-3 : transparent)
+        : (ta.pressed ? Theme.surface-2 : ta.has-hover ? Theme.hover : Theme.surface-3);
+    border-width: kind == "secondary" ? 1px : 0px;
+    border-color: Theme.border-strong;
+    animate background { duration: 120ms; }
+
+    label := Text {
+        text: root.text;
+        font-size: root.small ? Theme.font-small : Theme.font;
+        font-weight: root.kind == "primary" ? 600 : 500;
+        color: !root.enabled ? Theme.faint
+            : root.kind == "primary" ? Theme.on-accent
+            : root.kind == "danger" ? Theme.danger
+            : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Card inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    background: Theme.surface;
+    border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: Theme.border;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+        if root.title != "": VerticalLayout {
+            spacing: 2px;
+            Text { text: root.title; font-size: 16px; font-weight: 600; color: Theme.text; }
+            if root.subtitle != "": Text {
+                text: root.subtitle; font-size: Theme.font-small; color: Theme.muted; wrap: word-wrap;
+            }
+        }
+        @children
+    }
+}
+
+export component Chip inherits Rectangle {
+    in property <string> text;
+    in property <color> tone: Theme.accent;
+    border-radius: self.height / 2;
+    background: tone.with-alpha(0.14);
+    height: 24px;
+    min-width: t.preferred-width + 20px;
+    t := Text { text: root.text; color: root.tone; font-size: Theme.font-small; font-weight: 600; }
+}
+
+// Pill-shaped quick action (keyboard selection shortcuts).
+export component PillButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 28px;
+    min-width: t.preferred-width + 22px;
+    border-radius: 14px;
+    background: !enabled ? transparent : ta.has-hover ? Theme.hover : Theme.surface-3;
+    border-width: 1px;
+    border-color: Theme.border-strong;
+    animate background { duration: 120ms; }
+    t := Text { text: root.text; font-size: Theme.font-small; color: root.enabled ? Theme.text : Theme.faint; }
+    ta := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component Segmented inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> current;
+    callback changed(int);
+    height: 36px;
+    border-radius: Theme.radius;
+    background: Theme.surface-2;
+    border-width: 1px;
+    border-color: Theme.border;
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 3px;
+        for opt[i] in root.options: Rectangle {
+            min-width: lbl.preferred-width + 24px;
+            border-radius: Theme.radius - 2px;
+            background: i == root.current ? Theme.accent-soft : sta.has-hover ? Theme.surface-3 : transparent;
+            animate background { duration: 140ms; }
+            lbl := Text {
+                text: opt;
+                font-size: 13px;
+                font-weight: i == root.current ? 600 : 500;
+                color: i == root.current ? Theme.accent : Theme.muted;
+            }
+            sta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.current = i; root.changed(i); }
+            }
+        }
+    }
+}
+
+export component Toggle inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    width: 42px;
+    height: 24px;
+    border-radius: 12px;
+    background: !enabled ? Theme.surface-2 : checked ? Theme.accent : Theme.surface-3;
+    border-width: checked ? 0px : 1px;
+    border-color: Theme.border-strong;
+    animate background { duration: 150ms; }
+    knob := Rectangle {
+        width: 16px;
+        height: 16px;
+        y: 4px;
+        x: root.checked ? root.width - self.width - 4px : 4px;
+        border-radius: 8px;
+        background: root.checked ? Theme.on-accent : Theme.muted;
+        animate x { duration: 150ms; easing: ease-out; }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.checked = !root.checked; root.toggled(root.checked); }
+    }
+}
+
+// Slider with an accent fill, a value badge and keyboard-free precision via step.
+export component ValueSlider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <int> decimals: 2;
+    in property <string> suffix;
+    in property <bool> show-value: true;
+    in property <bool> enabled: true;
+    in property <length> badge-width: 76px;
+    in-out property <float> value;
+    callback changed(float);
+
+    height: 32px;
+    min-width: 160px;
+    property <length> badge: show-value ? badge-width : 0px;
+    property <length> track-w: self.width - badge - (show-value ? 12px : 0px) - 16px;
+    property <float> frac: (value - minimum) / max(0.0001, maximum - minimum);
+
+    track := Rectangle {
+        x: 8px;
+        y: (parent.height - 6px) / 2;
+        width: root.track-w;
+        height: 6px;
+        border-radius: 3px;
+        background: Theme.surface-3;
+        Rectangle {
+            x: 0;
+            width: parent.width * root.frac;
+            height: parent.height;
+            border-radius: 3px;
+            background: root.enabled ? Theme.accent : Theme.faint;
+        }
+    }
+    thumb := Rectangle {
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        x: track.x + track.width * root.frac - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        background: root.enabled ? Theme.text : Theme.muted;
+        border-width: 4px;
+        border-color: root.enabled ? (ta.pressed || ta.has-hover ? Theme.accent-hover : Theme.accent) : Theme.surface-3;
+        drop-shadow-blur: 6px;
+        drop-shadow-color: #00000080;
+    }
+    ta := TouchArea {
+        x: 0;
+        width: track.width + 16px;
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        function set-from(px: length) {
+            let f = max(0, min(1, (px - track.x) / track.width));
+            let raw = root.minimum + f * (root.maximum - root.minimum);
+            let snapped = round(raw / root.step) * root.step;
+            root.value = max(root.minimum, min(root.maximum, snapped));
+            root.changed(root.value);
+        }
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) { self.set-from(self.mouse-x); }
+        }
+        moved => { if (self.pressed) { self.set-from(self.mouse-x); } }
+    }
+    if root.show-value: Rectangle {
+        x: root.width - root.badge;
+        width: root.badge;
+        height: 28px;
+        y: (parent.height - self.height) / 2;
+        border-radius: 6px;
+        background: Theme.surface-2;
+        border-width: 1px;
+        border-color: Theme.border;
+        Text {
+            text: root.value.to-fixed(root.decimals) + root.suffix;
+            font-size: 13px;
+            color: root.enabled ? Theme.text : Theme.faint;
+        }
+    }
+}
+
+// Labelled row used in settings cards: label on the left, control on the right.
+export component Row inherits HorizontalLayout {
+    in property <string> label;
+    in property <bool> enabled: true;
+    spacing: 16px;
+    alignment: stretch;
+    Text {
+        text: root.label;
+        width: 110px;
+        vertical-alignment: center;
+        color: root.enabled ? Theme.text : Theme.faint;
+    }
+    @children
+}
+
+export component Swatch inherits Rectangle {
+    in property <color> swatch;
+    in property <bool> selected;
+    callback clicked;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: swatch;
+    border-width: selected ? 2px : 1px;
+    border-color: selected ? Theme.accent : #ffffff22;
+    TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// HSV colour picker: saturation/brightness square, hue bar, hex field and
+// quick swatches. Keeps its own h/s/v so the hue survives dragging to grey.
+export component ColorPicker inherits VerticalLayout {
+    in-out property <color> color;
+    callback edited(color);
+    property <[color]> presets: [#ff0000, #ff7a00, #ffd400, #3ddc84, #00c8ff, #3a6dff, #a855f7, #ff3d9a, #ffffff];
+    property <float> h;
+    property <float> s;
+    property <float> v;
+    property <bool> hex-bad;
+
+    function sync() {
+        let c = root.color.to-hsv();
+        root.h = c.hue;
+        root.s = c.saturation;
+        root.v = c.value;
+    }
+    function commit() {
+        root.color = hsv(root.h, root.s, root.v);
+        if (!hex.has-focus) { hex.text = Actions.to-hex(root.color); }
+        root.edited(root.color);
+    }
+    init => {
+        self.sync();
+        hex.text = Actions.to-hex(root.color);
+    }
+    changed color => {
+        // Changed from outside (profile, revert, swatch): follow it.
+        if (root.color != hsv(root.h, root.s, root.v)) {
+            self.sync();
+            if (!hex.has-focus) { hex.text = Actions.to-hex(root.color); }
+        }
+    }
+
+    spacing: 12px;
+    HorizontalLayout {
+        spacing: 14px;
+        sv := Rectangle {
+            height: 150px;
+            min-width: 200px;
+            horizontal-stretch: 1;
+            border-radius: 10px;
+            clip: true;
+            background: hsv(root.h, 1, 1);
+            Rectangle { background: @linear-gradient(90deg, #ffffff 0%, #ffffff00 100%); }
+            Rectangle { background: @linear-gradient(0deg, #000000 0%, #00000000 100%); }
+            Rectangle {
+                x: root.s * parent.width - self.width / 2;
+                y: (1 - root.v) * parent.height - self.height / 2;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: #ffffff;
+                background: root.color;
+                drop-shadow-blur: 4px;
+                drop-shadow-color: #000000a0;
+            }
+            sva := TouchArea {
+                mouse-cursor: crosshair;
+                function pick() {
+                    root.s = max(0, min(1, self.mouse-x / self.width));
+                    root.v = 1 - max(0, min(1, self.mouse-y / self.height));
+                    root.commit();
+                }
+                pointer-event(e) => { if (e.kind == PointerEventKind.down) { self.pick(); } }
+                moved => { if (self.pressed) { self.pick(); } }
+            }
+        }
+        VerticalLayout {
+            width: 150px;
+            spacing: 10px;
+            Rectangle {
+                height: 72px;
+                border-radius: 10px;
+                background: root.color;
+                border-width: 1px;
+                border-color: #ffffff26;
+            }
+            hex := LineEdit {
+                width: 150px;
+                height: 34px;
+                font-size: 13px;
+                edited(t) => {
+                    let c = Actions.parse-hex(t);
+                    root.hex-bad = c.alpha == 0;
+                    if (!root.hex-bad) {
+                        root.color = c;
+                        root.sync-from-hex();
+                    }
+                }
+                accepted => { self.text = Actions.to-hex(root.color); root.hex-bad = false; }
+            }
+            if root.hex-bad: Text { text: "Use #RRGGBB"; color: Theme.danger; font-size: 11px; }
+        }
+    }
+    function sync-from-hex() {
+        self.sync();
+        root.edited(root.color);
+    }
+    hue := Rectangle {
+        height: 16px;
+        border-radius: 8px;
+        background: @linear-gradient(90deg, #ff0000 0%, #ffff00 16.67%, #00ff00 33.33%, #00ffff 50%, #0000ff 66.67%, #ff00ff 83.33%, #ff0000 100%);
+        Rectangle {
+            x: root.h / 360 * (parent.width - self.width);
+            y: -2px;
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            border-width: 3px;
+            border-color: #ffffff;
+            background: hsv(root.h, 1, 1);
+            drop-shadow-blur: 4px;
+            drop-shadow-color: #000000a0;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            function pick() {
+                root.h = max(0, min(359.9, self.mouse-x / self.width * 360));
+                root.commit();
+            }
+            pointer-event(e) => { if (e.kind == PointerEventKind.down) { self.pick(); } }
+            moved => { if (self.pressed) { self.pick(); } }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        for c in root.presets: Swatch {
+            swatch: c;
+            width: 26px;
+            height: 26px;
+            selected: c == root.color;
+            clicked => {
+                root.color = c;
+                root.sync();
+                hex.text = Actions.to-hex(c);
+                root.edited(c);
+            }
+        }
+    }
+}
+
+export component Toast inherits Rectangle {
+    in property <ToastItem> item;
+    border-radius: 12px;
+    background: Theme.surface-3;
+    border-width: 1px;
+    border-color: item.error ? #f8717166 : #4ade8055;
+    drop-shadow-blur: 18px;
+    drop-shadow-color: #00000090;
+    drop-shadow-offset-y: 6px;
+    min-width: 260px;
+    max-width: 460px;
+    HorizontalLayout {
+        padding: 12px;
+        padding-left: 14px;
+        spacing: 10px;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            background: root.item.error ? Theme.danger : Theme.ok;
+        }
+        Text { text: root.item.text; color: Theme.text; wrap: word-wrap; vertical-alignment: center; }
+    }
+}
+
+export component Dialog inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    in property <string> action;
+    callback accept;
+    callback cancel;
+    background: #000000a0;
+    TouchArea { clicked => { root.cancel(); } }
+    Rectangle {
+        width: 420px;
+        height: box.preferred-height;
+        background: Theme.surface-2;
+        border-radius: 16px;
+        border-width: 1px;
+        border-color: Theme.border-strong;
+        drop-shadow-blur: 30px;
+        drop-shadow-color: #000000b0;
+        TouchArea { }
+        box := VerticalLayout {
+            padding: 24px;
+            spacing: 10px;
+            Text { text: root.title; font-size: 18px; font-weight: 600; color: Theme.text; }
+            Text { text: root.body; color: Theme.muted; wrap: word-wrap; }
+            HorizontalLayout {
+                padding-top: 10px;
+                spacing: 8px;
+                alignment: end;
+                Btn { text: "Cancel"; kind: "ghost"; clicked => { root.cancel(); } }
+                Btn { text: root.action; kind: "danger"; clicked => { root.accept(); } }
+            }
+        }
+    }
+}
+
+export component TextField inherits LineEdit {
+    font-size: Theme.font;
+    height: 36px;
+}

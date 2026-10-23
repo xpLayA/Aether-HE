@@ -1,0 +1,266 @@
+// The window: sidebar, top bar, page area, toasts and the confirm dialog.
+
+import "../assets/inter-400.ttf";
+import "../assets/inter-600.ttf";
+
+import { Theme } from "theme.slint";
+import { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, AdvRow, ToastItem } from "state.slint";
+import { Btn, Chip, Toast, Dialog } from "widgets.slint";
+import { Icon } from "icons.slint";
+import { ProfilesPage, LightingPage, EffectsPage, ActuationPage, KeysPage, LivePage, BackupsPage, DevicePage, ShortcutsPage } from "pages.slint";
+import { ScrollView, Spinner } from "std-widgets.slint";
+
+export { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, AdvRow, ToastItem }
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> active;
+    callback clicked;
+    height: 40px;
+    border-radius: Theme.radius;
+    background: active ? Theme.surface-3 : ta.has-hover ? Theme.surface-2 : transparent;
+    animate background { duration: 120ms; }
+    Rectangle {
+        x: 0;
+        width: 3px;
+        height: parent.active ? 18px : 0px;
+        border-radius: 2px;
+        background: Theme.accent;
+        animate height { duration: 160ms; easing: ease-out; }
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        spacing: 12px;
+        Icon { name: root.icon; tint: root.active ? Theme.accent : Theme.muted; y: (parent.height - self.height) / 2; }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            color: root.active ? Theme.text : Theme.muted;
+            font-weight: root.active ? 600 : 500;
+        }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+component ProfileSwitcher inherits Rectangle {
+    property <bool> on: UiState.connection == 1 && !UiState.busy;
+    width: 220px;
+    height: 36px;
+    border-radius: Theme.radius;
+    background: !on ? Theme.surface : ta.has-hover ? Theme.hover : Theme.surface-3;
+    border-width: 1px;
+    border-color: Theme.border-strong;
+    animate background { duration: 120ms; }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 8px;
+        Text {
+            text: UiState.active-profile == "" ? "Unsaved setup" : UiState.active-profile;
+            color: UiState.active-profile == "" ? Theme.muted : Theme.text;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Path {
+            width: 12px;
+            height: 12px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 12;
+            viewbox-height: 12;
+            commands: "M2 4 L6 8 L10 4";
+            stroke: Theme.muted;
+            stroke-width: 1.6px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea { enabled: root.on; mouse-cursor: pointer; clicked => { pop.show(); } }
+    pop := PopupWindow {
+        x: 0;
+        y: root.height + 6px;
+        width: root.width;
+        Rectangle {
+            background: Theme.surface-2;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            drop-shadow-blur: 20px;
+            drop-shadow-color: #000000a0;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                for name[i] in UiState.profile-names: Rectangle {
+                    height: 34px;
+                    border-radius: 8px;
+                    background: ita.has-hover ? Theme.surface-3 : transparent;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        Text { text: name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+                        if name == UiState.active-profile: Text { text: "Active"; color: Theme.accent; font-size: 12px; vertical-alignment: center; }
+                        if name != UiState.active-profile && UiState.profile-builtin[i]: Text { text: "Built-in"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                    }
+                    ita := TouchArea { mouse-cursor: pointer; clicked => { Actions.switch-profile(name); } }
+                }
+                if UiState.profile-names.length == 0: Text { text: "No profiles yet"; color: Theme.muted; x: 12px; height: 34px; vertical-alignment: center; }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Aether HE";
+    icon: @image-url("../../../packaging/aether-he.png");
+    preferred-width: 1280px;
+    preferred-height: 820px;
+    min-width: 900px;
+    min-height: 600px;
+    background: Theme.bg;
+    default-font-family: "Inter";
+    default-font-size: Theme.font;
+
+    HorizontalLayout {
+        // ---- sidebar -------------------------------------------------------
+        Rectangle {
+            width: 232px;
+            background: Theme.sidebar;
+            border-width: 0px;
+            Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border; }
+            VerticalLayout {
+                padding: 16px;
+                padding-top: 22px;
+                spacing: 4px;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-bottom: 22px;
+                    spacing: 10px;
+                    Icon { name: "logo"; tint: Theme.accent; size: 26px; y: (parent.height - self.height) / 2; }
+                    VerticalLayout {
+                        Text { text: "Aether"; font-size: 19px; font-weight: 600; color: Theme.text; }
+                        Text { text: "Keyboard control"; font-size: 11.5px; color: Theme.muted; }
+                    }
+                }
+                for item in UiState.nav: NavItem {
+                    label: item.label;
+                    icon: item.icon;
+                    active: UiState.page == item.page;
+                    clicked => { Actions.nav(item.page); }
+                }
+                Rectangle { vertical-stretch: 1; }
+                Rectangle {
+                    border-radius: Theme.radius-lg;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    height: status.preferred-height;
+                    status := VerticalLayout {
+                        padding: 12px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 8px; height: 8px; y: (parent.height - self.height) / 2; border-radius: 4px;
+                                background: UiState.connection == 1 ? Theme.ok : UiState.connection == 0 || UiState.connection == 3 ? Theme.warn : Theme.danger;
+                            }
+                            Text {
+                                text: UiState.connection == 1 ? "Connected" : UiState.connection == 0 ? "Connecting…" : UiState.connection == 3 ? "Bluetooth (typing only)" : "No keyboard";
+                                color: Theme.text; font-size: 13px; font-weight: 600;
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Btn {
+                                text: "Reconnect"; small: true; kind: "secondary"; horizontal-stretch: 1;
+                                enabled: !UiState.busy && UiState.effect-running == "";
+                                clicked => { Actions.reconnect(); }
+                            }
+                            Btn { text: "Quit"; small: true; kind: "ghost"; tip: "Stop effects and close Aether"; clicked => { Actions.quit(); } }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- main ----------------------------------------------------------
+        VerticalLayout {
+            // top bar
+            Rectangle {
+                height: 64px;
+                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+                HorizontalLayout {
+                    padding-left: 28px;
+                    padding-right: 20px;
+                    spacing: 12px;
+                    Text {
+                        text: UiState.connection == 1 || UiState.connection == 3 ? UiState.board-name : UiState.connection == 0 ? "Looking for your keyboard…" : "No keyboard connected";
+                        font-size: 17px; font-weight: 600; vertical-alignment: center;
+                        color: UiState.connection == 2 ? Theme.danger : Theme.text;
+                    }
+                    if UiState.connection == 1: Text { text: UiState.firmware; color: Theme.muted; vertical-alignment: center; }
+                    if UiState.connection == 1 && UiState.wireless: Chip {
+                        text: "2.4 GHz · " + (UiState.charging ? "⚡ " : "") + UiState.battery + "%";
+                        y: (parent.height - self.height) / 2;
+                    }
+                    if UiState.connection == 3: Chip {
+                        text: "Bluetooth" + (UiState.battery >= 0 ? " · " + UiState.battery + "%" : "");
+                        tone: Theme.warn;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    if UiState.connection == 3: Text { text: "typing only: settings need USB-C or 2.4 GHz"; color: Theme.muted; vertical-alignment: center; }
+                    if UiState.busy: Spinner { width: 18px; height: 18px; y: (parent.height - self.height) / 2; indeterminate: true; }
+                    Rectangle { horizontal-stretch: 1; }
+                    if UiState.effect-running != "": Chip { text: "Effect: " + UiState.effect-running; y: (parent.height - self.height) / 2; }
+                    Text { text: "Profile"; color: Theme.muted; vertical-alignment: center; }
+                    ProfileSwitcher { y: (parent.height - self.height) / 2; }
+                }
+            }
+            sv := ScrollView {
+                content-width: self.visible-width;
+                content-height: content.preferred-height;
+                property <bool> jumped;
+                // Once the page has laid out, jump to the requested offset (screenshots).
+                Timer {
+                    interval: 400ms;
+                    running: UiState.start-scroll > 0 && !sv.jumped;
+                    triggered => { sv.content-y = -UiState.start-scroll; sv.jumped = true; }
+                }
+                content := VerticalLayout {
+                    width: sv.visible-width;
+                    padding: 28px;
+                    padding-top: 24px;
+                    if UiState.page == 0: ProfilesPage { }
+                    if UiState.page == 1: LightingPage { }
+                    if UiState.page == 2: EffectsPage { }
+                    if UiState.page == 3: ActuationPage { }
+                    if UiState.page == 4: KeysPage { }
+                    if UiState.page == 5: LivePage { }
+                    if UiState.page == 6: BackupsPage { }
+                    if UiState.page == 7: DevicePage { }
+                    if UiState.page == 8: ShortcutsPage { }
+                }
+            }
+        }
+    }
+
+    // ---- toasts --------------------------------------------------------------
+    VerticalLayout {
+        x: parent.width - self.width - 24px;
+        y: parent.height - self.height - 24px;
+        width: 420px;
+        spacing: 8px;
+        alignment: end;
+        for t in UiState.toasts: Toast { item: t; }
+    }
+
+    if UiState.confirm-open: Dialog {
+        width: parent.width;
+        height: parent.height;
+        title: UiState.confirm-title;
+        body: UiState.confirm-body;
+        action: UiState.confirm-action;
+        accept => { Actions.confirm-yes(); }
+        cancel => { Actions.confirm-no(); }
+    }
+}

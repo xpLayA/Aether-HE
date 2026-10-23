@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Aether HE
+GenericName=Keyboard Configurator
+Comment=Lighting, effects and actuation for AULA Hall-effect keyboards
+Exec=aether-gui
+Icon=aether-he
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;aula;rgb;actuation;rapid trigger;
+StartupWMClass=aether-he

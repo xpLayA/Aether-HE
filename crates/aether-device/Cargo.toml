@@ -1,0 +1,18 @@
+[package]
+name = "aether-device"
+description = "HID transport, board registry, layouts and drivers for Aether"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aether-proto.workspace = true
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+hidapi = { version = "2", default-features = false, features = ["linux-shared-hidraw"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+directories = "6"

@@ -1,98 +1,117 @@
-# Aether — Aula WIN60 HE Controller
+# Aether HE
 
-Desktop app to control the **Aula Win60 HE** Hall-effect keyboard (VID `0x2E3C`,
-PID `0xC365`) over raw HID. The UI is the exact "Claude Design" React/Tailwind
-prototype rendered natively via **pywebview**; there is no WebHID, so a JS bridge
-calls into a Python `Api` (exposed as `window.pywebview.api`).
+Native Linux app and CLI (Rust) for configuring Hall-effect keyboards over their vendor HID protocol:
+lighting, host-streamed effects, actuation, rapid trigger, advanced keys, profiles and backups.
+Supported board: **AULA F75 HE** (more can be added as data; see `docs/PORTING.md`). Developed on
+CachyOS with Wayland/Hyprland. Repo `github.com/xpLayA/Aether-HE`, a GitHub fork of MrWhosNexus/Aether-HE
+(Python, WIN60). That code is in `legacy/`, kept for reference only; nothing builds or tests from it.
 
-Built and verified on **Linux/CachyOS**. A **Windows port** is in progress (see
-"Porting to Windows" below). Detailed engineering notes are in `docs/context/`
-(carried over from the dev sessions) — read those for protocol/effect specifics. Latest release
-record: `docs/context/aula-win60-v0.5.0-tray-macros-review.md`; hardware checks still owed:
-`docs/HARDWARE_TEST_CHECKLIST.md`.
+**Before working on a board, read its notes:** `docs/boards/<slug>.md`, plus its protocol doc in
+`docs/protocols/` (for example `hfd.md`).
 
-## Run
-```
-python -m venv venv-web && venv-web/bin/pip install -r requirements.txt   # (Win: venv-web\Scripts\pip)
-venv-web/bin/python app_web.py                                            # the app
-```
-`app_web.py` is the real app. `main.py` is a legacy CustomTkinter UI (ignore unless asked).
-The UI is prebuilt into `ui/index_runtime.html` by `ui/runtime_src/build_runtime.py`
-(React precompiled offline with bundled Babel). Rebuild after editing `ui/runtime_src/src/*.jsx`:
-```
-venv-web/bin/python ui/runtime_src/build_runtime.py
-```
+## Board safety (read before anything that writes to a keyboard)
+- **Never send** firmware flash, factory reset or calibration (HFD: `0x4F`, `0x0F`, `0x64`/`0x65`).
+  They are not representable as `Cmd` values in `aether-proto`, and `guard()` refuses them again at the
+  wire. Keep it that way, and do the same for any new protocol.
+- `Cmd` holds only commands **verified on hardware**. A new one needs a guarded probe first (read-only
+  if possible; on/off pairs always sent in a `finally`), with the user's OK.
+- Every write goes `validate` → `Backup::snapshot` → write → **read back and compare**. Partial table
+  reads abort before any write.
+- Close the vendor's web driver before probing: it holds the device, and writes look accepted while
+  nothing happens. Success means a byte-exact read-back or a visible effect, **never an ack alone**.
+- For a hardware test: back up first, restore in a `finally`, and tell the user what to watch for.
 
 ## Architecture
-- `app_web.py` — pywebview shell + `Api` HID bridge (connect, set_light, set_trigger_codes,
-  set_socd, calibrate, open_analog/read_live, start_multicolor, set_custom_colors, gamepad…).
-- `protocol.py` — HID packet builders, reverse-engineered from the official driver
-  (`driver_src/dec_agreement/deobfuscated.js`). Report ID 1; 64-byte reports.
-- `device_state.py` — `KeyMap` (key index↔design-code↔xy), `LiveReader` (travel-test stream),
-  `CalibrationReader`. The LiveReader drains and DISCARDS every non-travel report, so any driver
-  read-back (remap/switch/mode-0 actuation/macros) must run inside `Api._reader_paused()`.
-- `effects.py` — host-driven **per-key** lighting engine (firmware effects only hold one
-  fg+bg, so multi-color animations are streamed from the host via cmd 9). `FPS = 60`: a
-  120 bump was tried and reverted because it saturated the USB pipe. Per-board caps come
-  from `lighting.hostEngineMaxFps` in the registry (MINI 60 HE PRO measured at 28).
-- `gamepad.py` — Linux uinput virtual gamepad (LINUX ONLY; self-disables elsewhere).
-- `tray.py` — tray residency (pystray, Windows): closing the window HIDES it and the effect
-  engine keeps streaming; the Settings "Start minimized" toggle (settings.json `startMinimized`,
-  or `--minimized`) starts hidden. Right-click menu: Open / Hide window / Mini mode / Exit. The
-  icon opens a mini-mode panel (`ui/tray_panel.html`: Open / effect grid / speed slider / Exit). The panel
-  never drives the board: it sets `pattern`/`speed` in the React app via `window.__aetherTraySet`
-  and reads state from `Api.tray_sync` (pushed by app.jsx). Without pystray, close quits as before.
-- `single_instance.py` — Windows named mutex + "show" event: a second launch pokes the running
-  instance (window comes up) and exits. main() also gives WebView2 its OWN profile folder
-  (`%LOCALAPPDATA%\AetherHE\webview`): the pywebview default is shared by every build, and a
-  second process holding it → WebView2 init fails with HRESULT 0x8007139F (blank window).
-- `ui/runtime_src/src/{app,sections,keyboard}.jsx` — the edited UI; `vendor/` is unmodified.
+```
+aether-gui (Slint)    aether (CLI)
+        \              /
+       aether-device ── aether-effects        Keyboard trait, drivers, registry, backups, profiles
+             |
+       aether-proto                           frame builders/parsers, no I/O, golden-tested
+             |
+   hidraw (vendor usage page only)
+```
 
-## HID protocol cheat-sheet (verified on hardware)
-- **Lighting (cmd 7)**: `[0]=7,[4]=14,[5]=mode,[6]=bri,[7]=speed,[8-10]=fg,[11-13]=bg,[14]=dir,[15]=fullColor,[16]=power`.
-  Mode bytes (VENDOR-CORRECT, from hed.aulacn.com `config__language.json` lightMode<N>
-  + the board's own readLightList): static0 breath1 wave2 neon3 radar4 reactive6
-  **aurora7** ripple8 twinkle9 custom10 **cross11** speedres12 autorip14 striation15
-  **fireworks16** (5 and 13 unused; 100 = vendor's host-side Musical Rhythm, not ported).
-  An earlier table had 7/11/16 swapped (cross7 fireworks11 aurora16) — that was wrong.
-  Direction bytes: right0 left1 up2 down3 spread4 gather5. Side-light channel = same
-  layout on **cmd 8** (list via cmd 2); the Win60 reports an EMPTY side list (no side LEDs).
-- **Per-key RGB (cmd 9)**: 396-byte table streamed in 54-byte pages (host effect engine).
-- **Actuation/trigger (cmd 33)**: travel/RT. Trigger MODE: **0 = fixed actuation point**,
-  12 = rapid-trigger single, 13 = RT separate press/release. Unit = **0.01 mm**, min 0.08, max 3.4 mm.
-  Travel-test stream = cmd33 frames with body[5]==0x01 (`r[1]==33,r[6]==1`; the `r[5]==5` the reader
-  matches is the payload LENGTH byte, not a sub-command — sub 0x05 is the per-key config read;
-  `idx=r[7]*22+r[8],depth=(r[9]|r[10]<<8)/100` — offsets confirmed correct by capture).
-- **Calibration**: cmd33 sub `r[6]∈{8,15}`; `r[7]==1` → bitmask `r[8:30]` (idx=bit*22+col) of
-  calibrated keys; `r[7]==0` → complete.
-- **Macros (cmd 25)**: 10 slots x 256 B, paged 4x58+24 (`[1]=slot` write, `slot|0x80` read; never-
-  written slot reads all 0xFF, vendor writes all-0x00 for unused). Header `[slot, playMode, lenBE16,
-  countBE16, 0, 0]` — byte 1 is the vendor macroType (0 once, 1 repeat N; 2 toggle / 3 hold UNVERIFIED),
-  NOT the slot repeated. Events `[hid, 0x10 down|0x00 up, delayAfterBE16]`; Aether/base-driver tuples are
-  `(delay_BEFORE_ms, hid, is_down)` and protocol.py shifts by one at the wire (deobfuscated.js L1244/L505).
-  A key fires a macro via base-keymap entry `[0x10, default_hid, slot, 0]` (cmd 24) — `Win60Driver.bind_macro`
-  is a base-layer RMW (`protocol.compose_base_keymap`: zero read-back = firmware default) + Fn replay.
-  Api: `list_macros/read_macro/save_macro/delete_macro/bind_macro/unbind_macro`; names live in
-  settings.json `macroNames`. UI: `ui/runtime_src/workspaces/macros.jsx` (tab gated on registry `macros`).
-- **Device interface**: prefer usage_page `0xFF1B`; Linux reports 0x0 so it falls back to the
-  highest interface_number (iface 2). Windows usually reports the usage page correctly.
+| Path | Role |
+|---|---|
+| `crates/aether-proto` | HFD frames; `Cmd`, `guard()`, `repage()`; tables are 126 slots (`KEY_SLOTS`) |
+| `crates/aether-device` | `transport.rs` (hidraw, vendor usage page only); `lib.rs` `Keyboard` trait + `connect()`/`open()` dispatching on `board.protocol`; `hfd.rs` driver (`require(capability)` gates every method); `data.rs` registry; `backup.rs`, `profile.rs` (`PRESETS`), `advanced.rs`, `keys_in.rs` (read-only key presses), `bluetooth.rs` (detect only) |
+| `crates/aether-effects` | `Engine`: animated (wave, breathe, aurora, comet, tide, twinkle, rain, striation, static) and reactive (ripple, splash, cross, sparks, afterglow, heatmap, lightning; fed by `Engine::press`) |
+| `crates/aether-cli` | the `aether` binary |
+| `crates/aether-gui` | Slint 1.18, fluent-dark. `ui/*.slint` is layout only (`UiState`/`Actions` globals); `src/main.rs` is glue, state → UI in `push_*`; `src/worker.rs` owns the device (polled every 33 ms) |
+| `data/boards/<slug>/` | `board.json` (IDs, links, protocol, **capabilities**, lighting modes, limits), `layout.json`, optional `shortcuts.json` |
+| `docs/boards/`, `docs/protocols/` | per-board facts and protocol references |
+| `docs/context/` | research, vendor captures, hardware probe scripts (`<board>-bringup/`) |
+| `fixtures/<board>/` | real device replies used by tests |
+| `scripts/` | `build.sh`, `install.sh`/`uninstall.sh` (manifest-based), `identify-board.py` (read-only HID survey) |
+| `packaging/` | `70-aether.rules` (udev uaccess; must sort before 73-seat-late), `.desktop`, icon |
 
-## Effects (host engine, all multi-color over a background, time-based motion @60fps)
-Press-reactive (need live travel): **reactive, ripple, speedres, cross, fireworks**.
-Notable behaviors set during review: **Cross** = press lights that key's exact row+column;
-**Fireworks** = press-triggered explosion; **Frenzy** = the old automatic bursts;
-**Striation** = shooting stars across rows w/ fading trails; **Auto-Ripple** = wavefronts
-from center outward, wide+slow ("rock in pond"); **Speed-Respond** = click-rate fill;
-**Rain** = Matrix curtain (dense columns, bright heads, long tails). Per-frame spawners
-(rain/twinkle/frenzy) scale by `_SPAWN_NORM` so density is FPS-independent.
+## Boards and capabilities
+- A board is one folder, `data/boards/<slug>/`, and the folder name must equal the slug. Ports never
+  edit a shared file.
+- Capabilities (`lighting`, `host_effects`, `actuation`, `rapid_trigger`, `per_key_store`,
+  `advanced_keys`) are `true` **only after a hardware round-trip**, recorded with its date and script
+  in `_comment`. `wireless_capabilities` replaces them when the board is opened through a wireless
+  link.
+- Drivers refuse what isn't verified (`require`). The GUI shows only the pages a board's
+  capabilities allow (`push_nav`) and never checks a board's name.
+- Fn shortcuts come from the connected board's own `shortcuts.json`. Only `groups` is required; the
+  F-row table, its system modes and its labels are optional.
+- `every_shipped_board_is_consistent` (`data.rs`) checks every board folder. Adding a board:
+  `docs/PORTING.md`. A new protocol: implement `Keyboard`, add it to `open()` and to that test.
 
-## Porting to Windows (current focus)
-Reference repo for the Windows build: https://github.com/MrWhosNexus/WIN60-HE-Mod.git
-- `requirements.txt` is already cross-platform safe (evdev is `sys_platform=="linux"` only;
-  pywebview added). `pip install` works on Windows.
-- **Gamepad** (`gamepad.py`) is Linux uinput — needs a port to **vgamepad + ViGEmBus** on Windows.
-  It already degrades gracefully (feature disabled) when evdev is absent, so the app still launches.
-- **udev rules** (`99-*.rules`) are Linux-only — not used on Windows.
-- **HID interface selection** (`aula_device.find_vendor_interface`) should work on Windows via the
-  `0xFF1B` usage-page match, but verify it opens the vendor collection (not the keyboard HID).
-- Lighting + actuation + effects are pure Python and should be portable as-is.
+## Build / run / test
+```
+./scripts/build.sh            # deps check, cargo test, release build
+cargo test --workspace        # golden frames, fake-board driver tests, registry, profiles, effects
+./target/release/aether-gui   # AETHER_PAGE=actuation opens a page; AETHER_SCROLL=600 scrolls it
+./target/release/aether info | light get | actuation get | keys list | profile list | backups
+./scripts/install.sh          # ~/.local + app menu + udev rule (sudo once)
+./scripts/uninstall.sh        # asks: keep keyboard settings or restore original; --purge deletes backups
+scripts/identify-board.py [name] [--dump]   # read-only: VID:PID, interface, vendor usage pages
+```
+`AETHER_DATA_DIR` overrides where `boards/` is found. Without it: installed share dir first, then the
+source tree. Only one GUI runs per session, so quit the installed one before testing a build.
+
+## Workflow
+- **Never commit to `main`.** Branch first: `board/<slug>`, `feat/…`, `fix/…`, `docs/…`, `refactor/…`.
+  Merge through a pull request (`gh pr create`) once CI passes. `main` is protected (PR + the "Test"
+  check). Remotes: `origin` = xpLayA/Aether-HE; `upstream` = MrWhosNexus/Aether-HE, fetch only.
+  Never push or open PRs there; `gh repo set-default` is xpLayA/Aether-HE.
+- Conventional commits, one logical step each. The body says why, and names the probe script and
+  date for anything verified on hardware.
+- Push or open PRs only when the user asks. Never force-push without their explicit OK.
+- Keep `README.md` (features, status table), `docs/boards/<slug>.md` and the protocol docs in step
+  with the code.
+
+## Runtime behaviour and data on disk
+- **Backups** (`~/.local/share/aether-he/backups/<board>-<unix>.json`):
+  - only the original, pre-Aether state is kept automatically: `Backup::snapshot` creates it before
+    the first change, fills in sections it lacks, and never overwrites it;
+  - manual backups (`aether backup`, "Backup now") add files;
+  - `aether backups --prune` merges everything into the original.
+- **Profiles** (`~/.config/aether-he/profiles/*.json`, format 2: optional lighting + actuation table +
+  optional effect):
+  - built-ins (Firmware default, Competitive, Gaming, Balanced, Typing) come from `PRESETS`, set
+    actuation only, and are never saved;
+  - the GUI always has an active profile and auto-saves every edit into it;
+  - editing a built-in forks "<name> (custom)".
+- **GUI state** is in `~/.config/aether-he/gui.json`. Autostart is
+  `~/.config/autostart/aether-he.desktop` (Hyprland users add `exec-once = aether-gui --background`).
+- **Closing the window** hides it while a host effect runs (`on_close_requested`).
+- **Quit/SIGTERM** quits cleanly:
+  1. the lighting is restored;
+  2. the "When Aether quits" mode (`quit_mode`) is written if set;
+  3. the next connect puts the profile's lighting back.
+- **One instance** per session (`$XDG_RUNTIME_DIR/aether-he.sock`, `instance.rs`): a second launch
+  shows the existing window.
+- **`--background`** maps the window for 0.5 s, then hides it. winit on Wayland can't later show a
+  window that was never mapped.
+- **Auto-reconnect** every 5 s while disconnected or on Bluetooth only.
+
+## Conventions
+- Match the surrounding style; comments explain *why*.
+- Board-specific facts go in `data/` and `docs/boards/`, never in UI code.
+- Legacy and vendor material is reference only (`NOTICE.md`).
+- Security audit: `docs/SECURITY_AUDIT.md`.
+- Other assistants read `AGENTS.md`, which points here.

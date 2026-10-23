@@ -1,0 +1,12 @@
+[package]
+name = "aether-effects"
+description = "Host-driven per-key lighting effects for Aether"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aether-proto.workspace = true
+fastrand = "2"

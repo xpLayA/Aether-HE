@@ -1,0 +1,275 @@
+// Shared UI state (set from Rust) and actions (handled in Rust).
+// Pages bind to these globals instead of threading properties through.
+
+export struct ToastItem {
+    text: string,
+    error: bool,
+}
+
+export struct KeyCap {
+    index: int,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    label: string,
+    value: string,
+    fill: color,
+    ink: color,
+    selected: bool,
+}
+
+export struct ProfileCard {
+    name: string,
+    actuation: string,
+    lighting: string,
+    effect: string,
+    active: bool,
+    builtin: bool,
+}
+
+export struct Preset {
+    name: string,
+    detail: string,
+}
+
+export struct BackupRow {
+    when: string,
+    file: string,
+}
+
+export struct AdvRow {
+    index: int,
+    key: string,
+    value: string,
+}
+
+export struct InfoRow {
+    key: string,
+    value: string,
+}
+
+export struct ShortcutGroup {
+    title: string,
+    subtitle: string,
+    rows: [InfoRow],
+}
+
+export struct FKey {
+    key: string,
+    press: string,
+    with-fn: string,
+}
+
+export struct NavEntry {
+    label: string,
+    icon: string,
+    // Index into the page list (stays fixed when entries are hidden).
+    page: int,
+}
+
+export global UiState {
+    // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 keys, 5 live, 6 backups, 7 device, 8 shortcuts
+    in-out property <int> page;
+    // Sidebar entries: only the pages the connected board supports.
+    in property <[NavEntry]> nav;
+    // Initial scroll offset (AETHER_SCROLL, for screenshots).
+    in property <length> start-scroll;
+    // 0 connecting, 1 connected, 2 no keyboard, 3 Bluetooth only (typing, no settings)
+    in property <int> connection;
+    in property <string> board-name;
+    in property <string> firmware;
+    // Connected through the 2.4 GHz receiver: show the battery.
+    in property <bool> wireless;
+    // The connection carries host effects (not over the 2.4 GHz receiver).
+    in property <bool> effects-ok: true;
+    in property <int> battery;
+    in property <bool> charging;
+    in property <string> down-reason;
+    in property <bool> busy;
+    in property <string> effect-running;
+    in property <string> active-profile;
+    in property <int> active-profile-index: -1;
+    in property <[string]> profile-names;
+    // parallel to profile-names
+    in property <[bool]> profile-builtin;
+    // the active profile is a built-in (or none): the next edit creates a custom one
+    in property <bool> active-builtin: true;
+
+    // keyboard view
+    in property <[KeyCap]> keys;
+    in property <float> board-w: 1;
+    in property <float> board-h: 1;
+    in property <int> selected-count;
+    in property <string> hover-key;
+    in property <string> hover-info;
+    in property <bool> show-legend;
+
+    // profiles
+    in property <[ProfileCard]> builtin-profiles;
+    in property <[ProfileCard]> profiles;
+    in-out property <string> new-profile-name;
+    in-out property <string> renaming;
+    in-out property <string> rename-text;
+
+    // lighting
+    in property <[string]> light-modes;
+    in-out property <int> light-mode;
+    in-out property <color> light-color;
+    in property <bool> light-color-ok;
+    in property <bool> light-speed-ok;
+    in-out property <float> light-brightness;
+    in-out property <float> light-speed;
+    in property <float> brightness-max: 5;
+    in property <float> speed-max: 5;
+    in property <bool> light-dirty;
+    // mode 20 on a board that stores per-key colours: show the paint tools
+    in property <bool> light-custom;
+    in-out property <bool> live-preview: true;
+    in property <bool> previewing;
+    in-out property <bool> simulate: true;
+    in property <string> keys-badge;
+
+    // effects
+    in property <[string]> fx-kinds;
+    in-out property <int> fx-kind;
+    in property <[color]> fx-palette;
+    in-out property <int> fx-edit: -1;
+    in-out property <color> fx-edit-color;
+    in-out property <color> fx-bg;
+    in-out property <bool> fx-bg-open;
+    in-out property <float> fx-speed;
+    in-out property <float> fx-brightness;
+    in-out property <int> fx-direction;
+    in property <bool> fx-reactive;
+
+    // actuation
+    in property <[Preset]> presets;
+    in-out property <int> scope;
+    in-out property <float> travel: 1.2;
+    in-out property <bool> rt;
+    in-out property <float> press: 0.15;
+    in-out property <float> release: 0.15;
+    in property <float> travel-min: 0.1;
+    in property <float> travel-max: 3.4;
+    in property <float> rt-min: 0.01;
+    in property <float> rt-max: 3.4;
+    in property <bool> rt-ok: true;
+
+    // advanced keys
+    in-out property <int> adv-kind;
+    in property <string> adv-target;
+    in property <bool> adv-ready;
+    in property <[string]> adv-key-names;
+    in-out property <int> adv-tap;
+    in-out property <int> adv-hold;
+    in-out property <float> adv-delay: 200;
+    in-out property <int> adv-socd;
+    in-out property <float> adv-press: 1.0;
+    in-out property <float> adv-bottom: 3.0;
+    in property <[int]> adv-dks-keys: [0, 0, 0, 0];
+    // action * 4 + point: 0 nothing, 1 tap, 2 hold
+    in property <[int]> adv-dks-cells;
+    in property <[AdvRow]> adv-list;
+    // the selection includes keys with a function
+    in property <bool> adv-removable;
+    in property <string> adv-remove-label;
+
+    // backups / device
+    in property <[BackupRow]> backups;
+    in property <bool> has-original;
+    in property <[InfoRow]> device-info;
+    // Fn shortcuts from the board's manual (data/boards/<slug>/shortcuts.json).
+    in property <string> shortcut-note;
+    in property <[ShortcutGroup]> shortcut-groups;
+    in property <[string]> shortcut-systems;
+    in-out property <int> shortcut-system;
+    in property <string> shortcut-switch;
+    in property <[FKey]> shortcut-frow;
+    in property <string> profiles-dir;
+    in property <string> backups-dir;
+    in-out property <bool> keep-running: true;
+    in-out property <bool> autostart;
+    // "After Aether quits" lighting: [0] = the Lighting page's, then the board's modes.
+    in property <[string]> quit-modes;
+    in-out property <int> quit-mode-index;
+    in property <bool> quit-ok;
+
+    // overlays
+    in property <[ToastItem]> toasts;
+    in property <bool> confirm-open;
+    in property <string> confirm-title;
+    in property <string> confirm-body;
+    in property <string> confirm-action;
+}
+
+export global Actions {
+    callback nav(int);
+    callback reconnect();
+    callback switch-profile(string);
+
+    callback board-click(float, float, bool);
+    callback board-rect(float, float, float, float, bool);
+    callback board-hover(float, float);
+    callback board-leave();
+    callback quick-select(string);
+
+    callback profile-apply(string);
+    callback profile-action(string, string);
+    callback profile-save-new();
+    callback profile-rename-done();
+
+    callback light-mode-picked(int);
+    callback light-apply();
+    callback light-revert();
+    callback light-reread();
+    callback light-edited();
+    callback light-preview-toggled(bool);
+    callback light-sim-toggled(bool);
+    // "selected" | "all" | "erase" | "pick"
+    callback light-paint(string);
+
+    callback fx-pick(int);
+    callback fx-set-color(int, color);
+    callback fx-add-color();
+    callback fx-remove-color(int);
+    callback fx-start();
+    callback fx-stop();
+    callback fx-defaults();
+
+    callback preset(int);
+    callback act-apply();
+    callback act-reset-selected();
+    callback act-reset-all();
+    callback act-read();
+
+    callback adv-edited();
+    callback adv-apply();
+    callback adv-reread();
+    callback adv-swap();
+    callback adv-dks-key(int, int);
+    callback adv-dks-cell(int, int);
+    // remove from the selected keys / from one key / from all keys
+    callback adv-remove();
+    callback adv-remove-key(int);
+    callback adv-remove-all();
+    callback adv-select(int);
+
+    callback backup-now();
+    callback backup-restore(int);
+    callback backup-original();
+    callback open-dir(string);
+
+    // Hex helpers (Slint has no hex formatting); parse-hex returns transparent when invalid.
+    pure callback to-hex(color) -> string;
+    pure callback parse-hex(string) -> color;
+
+    callback quit();
+    callback keep-running-toggled(bool);
+    callback autostart-toggled(bool);
+    callback shortcut-system-chosen(int);
+    callback quit-mode-chosen(int);
+
+    callback confirm-yes();
+    callback confirm-no();
+}
