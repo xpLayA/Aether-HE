@@ -741,10 +741,10 @@ export component ShortcutsPage inherits VerticalLayout {
             Text { text: r.value; color: Theme.text; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
         }
     }
-    if UiState.shortcut-systems.length > 0: Card {
-        title: "F-row";
-        subtitle: "What F1–F12 do depends on the system mode. " + UiState.shortcut-switch + ".";
-        HorizontalLayout {
+    if UiState.shortcut-frow.length > 0: Card {
+        title: "Fn layer";
+        subtitle: "What these keys do alone and with Fn. " + UiState.shortcut-switch;
+        if UiState.shortcut-systems.length > 1: HorizontalLayout {
             alignment: start;
             Segmented {
                 options: UiState.shortcut-systems;

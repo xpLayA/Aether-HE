@@ -60,6 +60,9 @@ put() { # put <mode> <src> <dest>
 step "Installing to $prefix"
 put 755 target/release/aether "$prefix/bin/aether"
 put 755 target/release/aether-gui "$prefix/bin/aether-gui"
+# The data folder is entirely ours: start clean, so files an older version
+# installed (data/boards.json, data/layouts/) don't linger.
+rm -rf -- "${share:?}/data"
 while IFS= read -r -d '' f; do
     put 644 "$f" "$share/$f"
 done < <(find data -type f -print0 | sort -z)

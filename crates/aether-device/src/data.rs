@@ -1,5 +1,7 @@
-//! `data/boards.json` (which boards exist and what is verified on each) and
-//! the per-board layout files.
+//! The board registry: one folder per board under `data/boards/<slug>/`
+//! holding `board.json` (identity, links, what is verified), `layout.json`
+//! and an optional `shortcuts.json`. A port adds a folder and touches no
+//! shared file.
 
 use std::path::{Path, PathBuf};
 
@@ -7,7 +9,7 @@ use serde::{Deserialize, Deserializer};
 
 use crate::{Error, Result};
 
-/// Where `boards.json` and `layouts/` live, first match wins:
+/// Where `boards/` lives, first match wins:
 /// `$AETHER_DATA_DIR`, `<exe>/../share/aether-he/data` (installed),
 /// then the source tree's `data/` (cargo run).
 pub fn data_dir() -> Result<PathBuf> {
@@ -21,21 +23,39 @@ pub fn data_dir() -> Result<PathBuf> {
     tried.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data"));
     tried
         .iter()
-        .find(|d| d.join("boards.json").is_file())
+        .find(|d| d.join("boards").is_dir())
         .cloned()
-        .ok_or_else(|| Error::Data(format!("boards.json not found in {tried:?}")))
+        .ok_or_else(|| Error::Data(format!("boards/ not found in {tried:?}")))
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Registry {
     pub boards: Vec<Board>,
 }
 
 impl Registry {
+    /// Every `boards/*/board.json`, in slug order (stable device matching).
     pub fn load() -> Result<Registry> {
-        let path = data_dir()?.join("boards.json");
-        let text = std::fs::read_to_string(&path)?;
-        serde_json::from_str(&text).map_err(|e| Error::Data(format!("{}: {e}", path.display())))
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(data_dir()?.join("boards"))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|d| d.join("board.json").is_file())
+            .collect();
+        dirs.sort();
+        let boards = dirs
+            .into_iter()
+            .map(|dir| {
+                let path = dir.join("board.json");
+                let text = std::fs::read_to_string(&path)?;
+                let mut b: Board = serde_json::from_str(&text).map_err(|e| Error::Data(format!("{}: {e}", path.display())))?;
+                b.dir = dir;
+                Ok(b)
+            })
+            .collect::<Result<_>>()?;
+        Ok(Registry { boards })
+    }
+
+    pub fn find(&self, slug: &str) -> Option<&Board> {
+        self.boards.iter().find(|b| b.slug == slug)
     }
 }
 
@@ -47,6 +67,8 @@ pub struct Board {
     pub pid: u16,
     pub usage_page: u16,
     pub protocol: String,
+    /// Layout file in the board's folder.
+    #[serde(default = "layout_file")]
     pub layout: String,
     pub capabilities: Capabilities,
     pub lighting: LightingInfo,
@@ -65,6 +87,13 @@ pub struct Board {
     /// Set when this board was opened through a wireless link.
     #[serde(skip)]
     pub wireless: bool,
+    /// The board's folder (`data/boards/<slug>`), set by [`Registry::load`].
+    #[serde(skip)]
+    pub dir: PathBuf,
+}
+
+fn layout_file() -> String {
+    "layout.json".into()
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -207,7 +236,7 @@ pub struct Layout {
 
 impl Layout {
     pub fn load(board: &Board) -> Result<Layout> {
-        let path = data_dir()?.join(&board.layout);
+        let path = board.dir.join(&board.layout);
         Layout::from_json(&std::fs::read_to_string(&path)?)
             .map_err(|e| Error::Data(format!("{}: {e}", path.display())))
     }
@@ -241,12 +270,17 @@ impl Layout {
 }
 
 /// The board's built-in Fn shortcuts, from its manual
-/// (`data/shortcuts/<slug>.json`). Firmware features: shown, never sent.
+/// (`data/boards/<slug>/shortcuts.json`). Firmware features: shown, never sent.
+/// Only `groups` is needed; boards differ in everything else.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Shortcuts {
+    #[serde(default)]
     pub note: String,
+    #[serde(default)]
     pub groups: Vec<ShortcutGroup>,
-    /// What the F-row does in each system mode (Fn+Q/W/E).
+    /// What a row of keys does alone and with Fn, one entry per system mode
+    /// (the F75 has three, switched with Fn+Q/W/E). Empty: no such table.
+    #[serde(default)]
     pub frow: Vec<FRow>,
 }
 
@@ -266,23 +300,48 @@ pub struct Shortcut {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FRow {
+    /// System mode name ("Windows"); empty when the board has only one.
+    #[serde(default)]
     pub system: String,
+    /// How to switch to it ("Fn + W").
+    #[serde(default)]
     pub switch: String,
-    /// F1..F12 pressed alone, then with Fn.
+    /// Key labels; default F1, F2, … as many as `press` has.
+    #[serde(default)]
+    pub keys: Vec<String>,
+    /// Each key pressed alone, then with Fn.
     pub press: Vec<String>,
     #[serde(rename = "fn")]
     pub with_fn: Vec<String>,
 }
 
+impl FRow {
+    pub fn labels(&self) -> Vec<String> {
+        if self.keys.is_empty() { (1..=self.press.len()).map(|i| format!("F{i}")).collect() } else { self.keys.clone() }
+    }
+}
+
 impl Shortcuts {
     /// `None` when the board has no shortcuts file.
-    pub fn load(slug: &str) -> Result<Option<Shortcuts>> {
-        let path = data_dir()?.join("shortcuts").join(format!("{slug}.json"));
+    pub fn load(board: &Board) -> Result<Option<Shortcuts>> {
+        let path = board.dir.join("shortcuts.json");
         if !path.is_file() {
             return Ok(None);
         }
-        let text = std::fs::read_to_string(&path)?;
-        serde_json::from_str(&text).map(Some).map_err(|e| Error::Data(format!("{}: {e}", path.display())))
+        Shortcuts::from_json(&std::fs::read_to_string(&path)?)
+            .map(Some)
+            .map_err(|e| Error::Data(format!("{}: {e}", path.display())))
+    }
+
+    pub fn from_json(text: &str) -> std::result::Result<Shortcuts, String> {
+        let s: Shortcuts = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        for f in &s.frow {
+            let n = f.press.len();
+            if f.with_fn.len() != n || (!f.keys.is_empty() && f.keys.len() != n) {
+                return Err(format!("frow {:?}: keys, press and fn must have the same length", f.system));
+            }
+        }
+        Ok(s)
     }
 }
 
@@ -309,8 +368,8 @@ mod tests {
         assert_eq!(f75.bluetooth.as_ref().unwrap().name_prefix, "AULA F75 HE-");
     }
 
-    /// Every board in `boards.json`, so a new port gets told what's wrong
-    /// before it ever reaches hardware.
+    /// Every board folder in `data/boards/`, so a new port gets told what's
+    /// wrong before it ever reaches hardware.
     #[test]
     fn every_shipped_board_is_consistent() {
         let reg = Registry::load().unwrap();
@@ -318,6 +377,7 @@ mod tests {
         for b in &reg.boards {
             let at = &b.slug;
             assert!(slugs.insert(at.as_str()), "{at}: slug used twice");
+            assert_eq!(b.dir.file_name().unwrap(), at.as_str(), "{at}: the folder must be named after the slug");
             assert!(["hfd"].contains(&b.protocol.as_str()), "{at}: protocol {:?} has no driver (see docs/PORTING.md)", b.protocol);
             let l = Layout::load(b).unwrap_or_else(|e| panic!("{at}: {e}"));
             assert!(!l.keys.is_empty(), "{at}: empty layout");
@@ -341,16 +401,31 @@ mod tests {
                 assert!(!c.per_key_store || c.lighting, "{at}: {over} per_key_store needs lighting");
                 assert!(!c.rapid_trigger || c.actuation, "{at}: {over} rapid_trigger needs actuation");
             }
-            Shortcuts::load(at).unwrap_or_else(|e| panic!("{at}: {e}"));
+            Shortcuts::load(b).unwrap_or_else(|e| panic!("{at}: {e}"));
         }
     }
 
     #[test]
     fn f75_shortcuts_load() {
-        let s = Shortcuts::load("aula-f75-he").unwrap().unwrap();
+        let reg = Registry::load().unwrap();
+        let s = Shortcuts::load(reg.find("aula-f75-he").unwrap()).unwrap().unwrap();
         assert_eq!(s.frow.iter().map(|f| f.system.as_str()).collect::<Vec<_>>(), ["Windows", "Mac", "Android"]);
         assert!(s.frow.iter().all(|f| f.press.len() == 12 && f.with_fn.len() == 12));
+        assert_eq!(s.frow[0].labels()[11], "F12");
         assert!(s.groups.iter().all(|g| !g.rows.is_empty()));
-        assert!(Shortcuts::load("no-such-board").unwrap().is_none());
+        let mut none = reg.find("aula-f75-he").unwrap().clone();
+        none.dir = std::env::temp_dir().join("aether-no-such-board");
+        assert!(Shortcuts::load(&none).unwrap().is_none());
+    }
+
+    #[test]
+    fn shortcuts_fit_other_boards() {
+        // Groups only: no system modes, no F-row table.
+        let s = Shortcuts::from_json(r#"{"groups":[{"title":"Lighting","rows":[{"keys":"Fn + Up","does":"Brighter"}]}]}"#).unwrap();
+        assert!(s.frow.is_empty() && s.note.is_empty());
+        // A number-row Fn layer with its own labels.
+        let s = Shortcuts::from_json(r#"{"frow":[{"keys":["1","2"],"press":["1","2"],"fn":["F1","F2"]}]}"#).unwrap();
+        assert_eq!(s.frow[0].labels(), ["1", "2"]);
+        assert!(Shortcuts::from_json(r#"{"frow":[{"press":["a","b"],"fn":["x"]}]}"#).is_err());
     }
 }
