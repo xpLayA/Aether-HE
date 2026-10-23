@@ -25,7 +25,13 @@ build or the tests reads `legacy/`. That folder is the original Python app, kept
 
 ## Branches
 
-Work on a branch off `main`, never on `main` itself:
+This repo is a GitHub fork of [MrWhosNexus/Aether-HE](https://github.com/MrWhosNexus/Aether-HE), the
+Python original. **Open pull requests against `xpLayA/Aether-HE`.** GitHub preselects the original as
+the base repository, so change it on the compare page, or run `gh repo set-default xpLayA/Aether-HE`
+once before `gh pr create`.
+
+`main` is protected. Every change goes through a pull request with passing CI. Work on a branch off
+`main`:
 
 | Branch | For |
 |---|---|

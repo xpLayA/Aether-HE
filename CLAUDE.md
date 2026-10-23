@@ -3,7 +3,7 @@
 Native Linux app and CLI (Rust) for configuring Hall-effect keyboards over their vendor HID protocol:
 lighting, host-streamed effects, actuation, rapid trigger, advanced keys, profiles and backups.
 Supported board: **AULA F75 HE** (more can be added as data; see `docs/PORTING.md`). Developed on
-CachyOS with Wayland/Hyprland. Repo `github.com/xpLayA/aether-he`, forked from MrWhosNexus/Aether-HE
+CachyOS with Wayland/Hyprland. Repo `github.com/xpLayA/Aether-HE`, a GitHub fork of MrWhosNexus/Aether-HE
 (Python, WIN60). That code is in `legacy/`, kept for reference only; nothing builds or tests from it.
 
 **Before working on a board, read its notes:** `docs/boards/<slug>.md`, plus its protocol doc in
@@ -75,7 +75,9 @@ source tree. Only one GUI runs per session, so quit the installed one before tes
 
 ## Workflow
 - **Never commit to `main`.** Branch first: `board/<slug>`, `feat/…`, `fix/…`, `docs/…`, `refactor/…`.
-  Merge through a pull request (`gh pr create`) once CI passes.
+  Merge through a pull request (`gh pr create`) once CI passes. `main` is protected (PR + the "Test"
+  check). Remotes: `origin` = xpLayA/Aether-HE; `upstream` = MrWhosNexus/Aether-HE, fetch only.
+  Never push or open PRs there; `gh repo set-default` is xpLayA/Aether-HE.
 - Conventional commits, one logical step each. The body says why, and names the probe script and
   date for anything verified on hardware.
 - Push or open PRs only when the user asks. Never force-push without their explicit OK.
