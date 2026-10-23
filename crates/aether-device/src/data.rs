@@ -309,6 +309,42 @@ mod tests {
         assert_eq!(f75.bluetooth.as_ref().unwrap().name_prefix, "AULA F75 HE-");
     }
 
+    /// Every board in `boards.json`, so a new port gets told what's wrong
+    /// before it ever reaches hardware.
+    #[test]
+    fn every_shipped_board_is_consistent() {
+        let reg = Registry::load().unwrap();
+        let mut slugs = std::collections::HashSet::new();
+        for b in &reg.boards {
+            let at = &b.slug;
+            assert!(slugs.insert(at.as_str()), "{at}: slug used twice");
+            assert!(["hfd"].contains(&b.protocol.as_str()), "{at}: protocol {:?} has no driver (see docs/PORTING.md)", b.protocol);
+            let l = Layout::load(b).unwrap_or_else(|e| panic!("{at}: {e}"));
+            assert!(!l.keys.is_empty(), "{at}: empty layout");
+            let mut seen = std::collections::HashSet::new();
+            for k in &l.keys {
+                assert!(seen.insert(k.index), "{at}: key index {} used twice ({})", k.index, k.name);
+                assert!(k.width > 0.0 && k.height > 0.0, "{at}: key {} has no size", k.name);
+            }
+            let mut bytes = std::collections::HashSet::new();
+            for m in &b.lighting.modes {
+                assert!(bytes.insert(m.byte), "{at}: lighting mode byte {} used twice", m.byte);
+            }
+            let [lo, hi] = b.actuation.travel_mm;
+            assert!(0.0 < lo && lo < hi, "{at}: travel_mm must be [min, max] with 0 < min < max");
+            for link in &b.links {
+                assert!(link.frame_len > 8, "{at}: link frame_len {} leaves no payload", link.frame_len);
+            }
+            // Capabilities imply each other: no effects without lighting, no RT without actuation.
+            for (c, over) in [(&b.capabilities, "wired"), (&b.wireless_capabilities, "wireless")] {
+                assert!(!c.host_effects || c.lighting, "{at}: {over} host_effects needs lighting");
+                assert!(!c.per_key_store || c.lighting, "{at}: {over} per_key_store needs lighting");
+                assert!(!c.rapid_trigger || c.actuation, "{at}: {over} rapid_trigger needs actuation");
+            }
+            Shortcuts::load(at).unwrap_or_else(|e| panic!("{at}: {e}"));
+        }
+    }
+
     #[test]
     fn f75_shortcuts_load() {
         let s = Shortcuts::load("aula-f75-he").unwrap().unwrap();
