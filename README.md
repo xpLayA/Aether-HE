@@ -14,7 +14,7 @@ rapid trigger and advanced keys, over USB-C or the 2.4 GHz receiver.**
 ![Tested](https://img.shields.io/badge/tested%20on-AULA%20F75%20HE%20fw%20V1.55-8957e5)
 
 [Features](#features) · [Install](#install) · [Using it](#using-it) · [Command line](#command-line) ·
-[Troubleshooting](#troubleshooting) · [Development](#development)
+[Troubleshooting](#troubleshooting) · [Contributing](#contributing) · [Development](#development)
 
 </div>
 
@@ -372,6 +372,20 @@ running.
 
 ---
 
+## Contributing
+
+**Have a different keyboard?** Aether is built so that porting it is mostly data. A board is an entry in
+`data/boards.json` plus a layout file. The UI only shows the pages a board has verified, so you get the
+same app with exactly what works. Many AULA Hall-effect boards share the F75's protocol family and
+need no new code at all.
+
+- [`docs/PORTING.md`](docs/PORTING.md): step by step, from `scripts/identify-board.py` to verified
+  capabilities, plus a ready-made prompt for AI-assisted ports.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): branches (`board/<slug>`, `feat/…`, `fix/…`), commits and checks.
+- [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md): the rules AI assistants follow in this repo.
+
+---
+
 ## Development
 
 ```bash
@@ -402,8 +416,9 @@ AETHER_PAGE=actuation ./target/release/aether-gui   # open on a page
 **Elsewhere in the repo:**
 - [`CLAUDE.md`](CLAUDE.md): engineering notes and the protocol, for contributors (and AI assistants).
 - [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md): security review of the original code.
-- [`docs/context/`](docs/context/) and [`legacy/python/`](legacy/python/): protocol research and the
-  original Python app, kept as the reference implementation.
+- [`docs/context/`](docs/context/): protocol research and the hardware probe scripts.
+- [`legacy/`](legacy/): the original Python app, kept as the reference implementation. The app, the
+  build and the tests don't use it.
 
 ---
 

@@ -25,14 +25,19 @@ crates/aether-effects  host-streamed per-key effects (wave, breathe, aurora, com
                        reactive: ripple, splash, cross, sparks, afterglow, heatmap, lightning — fed by Engine::press)
 crates/aether-cli      `aether` binary
 crates/aether-gui      `aether-gui` (Slint 1.18, fluent-dark): ui/*.slint = layout only (UiState/Actions globals);
-                       src/main.rs = glue; src/worker.rs owns the device (UI polls it every 33 ms)
+                       src/main.rs = glue; src/worker.rs owns the device (UI polls it every 33 ms);
+                       the sidebar shows only pages the board's capabilities allow (push_nav)
 data/                  boards.json (Rust registry), layouts/aula-f75he.json (80 keys, vendor table `t`),
                        shortcuts/<slug>.json (Fn shortcuts from the paper manual, "Fn shortcuts" page)
 fixtures/f75/          real F75 replies + probe notes (used by tests)
+scripts/identify-board.py  read-only HID survey (VID:PID, interface, vendor usage pages) for ports
 packaging/             70-aether.rules (udev uaccess; must sort before 73-seat-late), .desktop, icon
 scripts/               build.sh, install.sh, uninstall.sh
-legacy/python/         original app + 640 pytest tests (reference only); docs/ = protocol research
+legacy/python/         original app + 640 pytest tests (reference only; nothing builds or tests from it)
+docs/                  PORTING.md (adding a board), protocol research; CONTRIBUTING.md, AGENTS.md at the root
 ```
+New boards: follow `docs/PORTING.md` (data first, capabilities false until round-tripped, branch
+`board/<slug>`); `every_shipped_board_is_consistent` checks every boards.json entry.
 
 ## Build / run / test
 ```
