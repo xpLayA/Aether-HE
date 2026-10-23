@@ -49,6 +49,18 @@ export struct InfoRow {
     value: string,
 }
 
+export struct ShortcutGroup {
+    title: string,
+    subtitle: string,
+    rows: [InfoRow],
+}
+
+export struct FKey {
+    key: string,
+    press: string,
+    with-fn: string,
+}
+
 export global UiState {
     // 0 profiles, 1 lighting, 2 effects, 3 actuation, 4 keys, 5 live, 6 backups, 7 device
     in-out property <int> page;
@@ -156,6 +168,13 @@ export global UiState {
     in property <[BackupRow]> backups;
     in property <bool> has-original;
     in property <[InfoRow]> device-info;
+    // Fn shortcuts from the board's manual (data/shortcuts/).
+    in property <string> shortcut-note;
+    in property <[ShortcutGroup]> shortcut-groups;
+    in property <[string]> shortcut-systems;
+    in-out property <int> shortcut-system;
+    in property <string> shortcut-switch;
+    in property <[FKey]> shortcut-frow;
     in property <string> profiles-dir;
     in property <string> backups-dir;
     in-out property <bool> keep-running: true;
@@ -237,6 +256,7 @@ export global Actions {
     callback quit();
     callback keep-running-toggled(bool);
     callback autostart-toggled(bool);
+    callback shortcut-system-chosen(int);
     callback quit-mode-chosen(int);
 
     callback confirm-yes();

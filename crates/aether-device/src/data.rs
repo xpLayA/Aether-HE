@@ -240,6 +240,52 @@ impl Layout {
     }
 }
 
+/// The board's built-in Fn shortcuts, from its manual
+/// (`data/shortcuts/<slug>.json`). Firmware features: shown, never sent.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Shortcuts {
+    pub note: String,
+    pub groups: Vec<ShortcutGroup>,
+    /// What the F-row does in each system mode (Fn+Q/W/E).
+    pub frow: Vec<FRow>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShortcutGroup {
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+    pub rows: Vec<Shortcut>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Shortcut {
+    pub keys: String,
+    pub does: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FRow {
+    pub system: String,
+    pub switch: String,
+    /// F1..F12 pressed alone, then with Fn.
+    pub press: Vec<String>,
+    #[serde(rename = "fn")]
+    pub with_fn: Vec<String>,
+}
+
+impl Shortcuts {
+    /// `None` when the board has no shortcuts file.
+    pub fn load(slug: &str) -> Result<Option<Shortcuts>> {
+        let path = data_dir()?.join("shortcuts").join(format!("{slug}.json"));
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(&path)?;
+        serde_json::from_str(&text).map(Some).map_err(|e| Error::Data(format!("{}: {e}", path.display())))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +307,14 @@ mod tests {
         assert!(rf.wireless && rf.capabilities.actuation);
         assert!(!rf.capabilities.host_effects, "0x32 does not cross the RF bridge");
         assert_eq!(f75.bluetooth.as_ref().unwrap().name_prefix, "AULA F75 HE-");
+    }
+
+    #[test]
+    fn f75_shortcuts_load() {
+        let s = Shortcuts::load("aula-f75-he").unwrap().unwrap();
+        assert_eq!(s.frow.iter().map(|f| f.system.as_str()).collect::<Vec<_>>(), ["Windows", "Mac", "Android"]);
+        assert!(s.frow.iter().all(|f| f.press.len() == 12 && f.with_fn.len() == 12));
+        assert!(s.groups.iter().all(|g| !g.rows.is_empty()));
+        assert!(Shortcuts::load("no-such-board").unwrap().is_none());
     }
 }

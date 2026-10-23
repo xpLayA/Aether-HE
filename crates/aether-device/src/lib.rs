@@ -16,7 +16,7 @@ pub use advanced::{Advanced, describe, plan_advanced, usage_name};
 pub use bluetooth::BtKeyboard;
 pub use backup::{Backup, Colors, KeyTables, SavedLighting, backups_dir};
 pub use data::{
-    ActuationLimits, Board, BtId, Capabilities, Key, Layout, LightMode, LightingInfo, Link, Registry, data_dir,
+    ActuationLimits, Board, BtId, Capabilities, Key, Layout, LightMode, LightingInfo, Link, Registry, Shortcuts, data_dir,
 };
 pub use error::{Error, Result};
 pub use hfd::Hfd;

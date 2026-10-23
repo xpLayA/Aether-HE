@@ -7,7 +7,7 @@ import { Theme } from "theme.slint";
 import { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, AdvRow, ToastItem } from "state.slint";
 import { Btn, Chip, Toast, Dialog } from "widgets.slint";
 import { Icon } from "icons.slint";
-import { ProfilesPage, LightingPage, EffectsPage, ActuationPage, KeysPage, LivePage, BackupsPage, DevicePage } from "pages.slint";
+import { ProfilesPage, LightingPage, EffectsPage, ActuationPage, KeysPage, LivePage, BackupsPage, DevicePage, ShortcutsPage } from "pages.slint";
 import { ScrollView, Spinner } from "std-widgets.slint";
 
 export { UiState, Actions, KeyCap, ProfileCard, Preset, BackupRow, InfoRow, AdvRow, ToastItem }
@@ -151,6 +151,7 @@ export component AppWindow inherits Window {
                     { label: "Live depth", icon: "live" },
                     { label: "Backups", icon: "backups" },
                     { label: "Device", icon: "device" },
+                    { label: "Fn shortcuts", icon: "shortcuts" },
                 ]: NavItem {
                     label: item.label;
                     icon: item.icon;
@@ -247,6 +248,7 @@ export component AppWindow inherits Window {
                     if UiState.page == 5: LivePage { }
                     if UiState.page == 6: BackupsPage { }
                     if UiState.page == 7: DevicePage { }
+                    if UiState.page == 8: ShortcutsPage { }
                 }
             }
         }

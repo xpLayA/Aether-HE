@@ -715,3 +715,49 @@ export component DevicePage inherits VerticalLayout {
         }
     }
 }
+
+export component ShortcutsPage inherits VerticalLayout {
+    spacing: 16px;
+    PageTitle { title: "Fn shortcuts"; subtitle: UiState.shortcut-note; }
+    if UiState.shortcut-groups.length == 0: Card {
+        title: "No shortcuts for this keyboard";
+        Text { text: "Aether only knows the Fn shortcuts printed in a board's manual, and this board has none on file."; color: Theme.text; wrap: word-wrap; }
+    }
+    for grp in UiState.shortcut-groups: Card {
+        title: grp.title;
+        subtitle: grp.subtitle;
+        for r in grp.rows: HorizontalLayout {
+            spacing: 16px;
+            HorizontalLayout {
+                width: 220px;
+                alignment: start;
+                Chip { text: r.key; y: (parent.height - self.height) / 2; }
+            }
+            Text { text: r.value; color: Theme.text; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+        }
+    }
+    if UiState.shortcut-systems.length > 0: Card {
+        title: "F-row";
+        subtitle: "What F1–F12 do depends on the system mode. " + UiState.shortcut-switch + ".";
+        HorizontalLayout {
+            alignment: start;
+            Segmented {
+                options: UiState.shortcut-systems;
+                current <=> UiState.shortcut-system;
+                changed(i) => { Actions.shortcut-system-chosen(i); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            Text { text: "Key"; color: Theme.muted; font-size: Theme.font-small; width: 60px; }
+            Text { text: "Press"; color: Theme.muted; font-size: Theme.font-small; horizontal-stretch: 1; }
+            Text { text: "Fn + key"; color: Theme.muted; font-size: Theme.font-small; horizontal-stretch: 1; }
+        }
+        for f in UiState.shortcut-frow: HorizontalLayout {
+            spacing: 16px;
+            Text { text: f.key; color: Theme.accent; font-weight: 600; width: 60px; }
+            Text { text: f.press; color: Theme.text; horizontal-stretch: 1; }
+            Text { text: f.with-fn; color: Theme.text; horizontal-stretch: 1; }
+        }
+    }
+}

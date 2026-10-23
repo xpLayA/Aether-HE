@@ -49,7 +49,7 @@ pub enum Event {
     Connected { board: Board, layout: Layout, info: DeviceInfo },
     Disconnected(String),
     /// Only a Bluetooth connection: typing works, settings don't.
-    Bluetooth { name: String, battery: Option<u8> },
+    Bluetooth { slug: String, name: String, battery: Option<u8> },
     /// A fresh 0x10 reply (battery) over a wireless link.
     Info(DeviceInfo),
     Lighting(Lighting),
@@ -235,7 +235,7 @@ impl State {
                 self.read_keys();
             }
             Err(aether_device::Error::BluetoothOnly(bt)) => {
-                self.emit(Event::Bluetooth { name: bt.board.name.clone(), battery: bt.battery })
+                self.emit(Event::Bluetooth { slug: bt.board.slug.clone(), name: bt.board.name.clone(), battery: bt.battery })
             }
             Err(e) => self.emit(Event::Disconnected(e.to_string())),
         }
