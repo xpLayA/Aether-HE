@@ -1,6 +1,6 @@
 """Shared F75 HE bring-up helpers (scratchpad, not repo code)."""
 import json, os, sys, threading
-ROOT = "./legacy/python"
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "legacy", "python")
 sys.path.insert(0, ROOT)
 import hid
 import protocol_mini60 as pm
