@@ -24,5 +24,5 @@ Board and firmware: <!-- e.g. AULA F75 HE, V1.55 -->
 - [ ] `cargo test --workspace` passes
 - [ ] No flash / factory reset / calibration commands added anywhere
 - [ ] Every new write is read back and compared; probes restore in a `finally`
-- [ ] Capabilities set to `true` only for what was round-tripped (dated `_comment` in `boards.json`)
+- [ ] Capabilities set to `true` only for what was round-tripped (dated `_comment` in `board.json`, row in `docs/boards/<slug>.md`)
 - [ ] README / CLAUDE.md updated if features or protocol facts changed
